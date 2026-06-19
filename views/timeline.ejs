@@ -1,0 +1,53 @@
+<%- include('partials/head') %>
+<%- include('partials/nav') %>
+
+<main class="page-timeline">
+  <div class="container">
+
+    <header class="page-header">
+      <h1 class="page-header__title">Our Timeline 📖</h1>
+      <p class="page-header__subtitle">
+        Every milestone, every first, every memory — our story from the very beginning. 💕
+      </p>
+    </header>
+
+    <!-- ── Timeline ───────────────────────────────────────── -->
+    <!-- ✏️ EDIT: Update milestones in /data/timeline.js     -->
+    <div class="timeline">
+      <% milestones.forEach((milestone, index) => { %>
+      <div class="timeline__item <%= index % 2 === 0 ? 'timeline__item--left' : 'timeline__item--right' %>">
+
+        <div class="timeline__connector">
+          <div class="timeline__dot"><span><%= milestone.emoji %></span></div>
+        </div>
+
+        <article class="timeline__card card">
+          <div class="timeline__date"><%= milestone.date %></div>
+          <h2 class="timeline__title"><%= milestone.title %></h2>
+          <p class="timeline__description"><%= milestone.description %></p>
+
+          <% if (milestone.photo) { %>
+            <!-- 📸 Photo for this milestone -->
+            <img src="/<%= milestone.photo %>"
+                 alt="<%= milestone.title %>"
+                 class="timeline__photo"
+                 loading="lazy" />
+          <% } else { %>
+            <!-- Placeholder shown until a real photo is added -->
+            <!-- ✏️ Add a photo: set the 'photo' field in data/timeline.js -->
+            <div class="timeline__photo-placeholder">
+              <span>📸</span>
+              <small>Add a photo in <code>data/timeline.js</code></small>
+            </div>
+          <% } %>
+        </article>
+
+      </div>
+      <% }) %>
+    </div>
+    <!-- end timeline -->
+
+  </div>
+</main>
+
+<%- include('partials/footer') %>

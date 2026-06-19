@@ -1,0 +1,182 @@
+<%- include('partials/head') %>
+<%- include('partials/nav') %>
+
+<main class="page-adventure">
+  <div class="container">
+
+    <header class="page-header">
+      <h1 class="page-header__title">Adventure Planner 🗺️</h1>
+      <p class="page-header__subtitle">
+        Got a date idea? Save it here and we'll never be stuck wondering what to do. 💕
+      </p>
+    </header>
+
+    <!-- ── Flash messages ───────────────────────────────────── -->
+    <% if (message) { %>
+      <div class="alert alert--success"><%= message %></div>
+    <% } %>
+    <% if (error) { %>
+      <div class="alert alert--error"><%= error %></div>
+    <% } %>
+    <% if (dbError) { %>
+      <div class="alert alert--warning">⚠️ <%= dbError %></div>
+    <% } %>
+
+    <!-- ── New idea form ──────────────────────────────────────── -->
+    <% if (!dbError) { %>
+    <section class="card form-card">
+      <h2 class="card__title">✍️ Add a New Idea</h2>
+      <form action="/adventure" method="POST" class="idea-form">
+
+        <div class="form-row">
+          <!-- Vibe -->
+          <div class="form-group">
+            <label for="vibe" class="form-label">Vibe / Mood</label>
+            <select name="vibe" id="vibe" class="form-select" required>
+              <option value="" disabled selected>Pick a vibe…</option>
+              <% validVibes.forEach(v => { %>
+                <option value="<%= v %>"><%= {
+                  cozy: '🍵 Cozy',
+                  adventurous: '🏔️ Adventurous',
+                  foodie: '🍽️ Foodie',
+                  artsy: '🎨 Artsy',
+                  chill: '😌 Chill'
+                }[v] || v %></option>
+              <% }) %>
+            </select>
+          </div>
+
+          <!-- Budget -->
+          <div class="form-group">
+            <label for="budget" class="form-label">Budget</label>
+            <select name="budget" id="budget" class="form-select" required>
+              <option value="" disabled selected>Pick a budget…</option>
+              <% validBudgets.forEach(b => { %>
+                <option value="<%= b %>"><%= {
+                  free: '🆓 Free',
+                  '$':  '$ Budget-friendly',
+                  '$$': '$$ Moderate',
+                  '$$$':'$$$ Splurge'
+                }[b] || b %></option>
+              <% }) %>
+            </select>
+          </div>
+
+          <!-- Location -->
+          <div class="form-group">
+            <label for="location" class="form-label">Setting</label>
+            <select name="location" id="location" class="form-select" required>
+              <option value="" disabled selected>Pick a setting…</option>
+              <% validLocations.forEach(l => { %>
+                <option value="<%= l %>"><%= {
+                  'at home':       '🏠 At Home',
+                  'indoors':       '🏢 Indoors',
+                  'outdoors':      '🌿 Outdoors',
+                  'out on the town':'🌆 Out on the Town'
+                }[l] || l %></option>
+              <% }) %>
+            </select>
+          </div>
+        </div>
+
+        <!-- Notes -->
+        <div class="form-group">
+          <label for="notes" class="form-label">Notes <span class="form-label__optional">(optional)</span></label>
+          <textarea name="notes" id="notes" class="form-textarea"
+                    rows="3" maxlength="1000"
+                    placeholder="Any details, restaurants to try, places to go…"></textarea>
+        </div>
+
+        <button type="submit" class="btn btn--primary btn--full">Save Idea 💕</button>
+      </form>
+    </section>
+    <% } %>
+
+    <!-- ── Saved ideas ─────────────────────────────────────── -->
+    <% if (!dbError && ideas.length > 0) { %>
+    <section class="ideas-section">
+      <h2 class="section-title section-title--left">Our Saved Ideas 📝</h2>
+      <div class="ideas-grid">
+        <% ideas.forEach(idea => { %>
+        <article class="idea-card idea-card--<%= idea.status %>">
+
+          <div class="idea-card__badges">
+            <span class="badge badge--vibe"><%= {
+              cozy: '🍵 Cozy', adventurous: '🏔️ Adventurous',
+              foodie: '🍽️ Foodie', artsy: '🎨 Artsy', chill: '😌 Chill'
+            }[idea.vibe] || idea.vibe %></span>
+            <span class="badge badge--budget"><%= idea.budget %></span>
+            <span class="badge badge--location"><%= {
+              'at home': '🏠', indoors: '🏢', outdoors: '🌿',
+              'out on the town': '🌆'
+            }[idea.location] || '' %> <%= idea.location %></span>
+          </div>
+
+          <% if (idea.notes) { %>
+            <p class="idea-card__notes"><%= idea.notes %></p>
+          <% } %>
+
+          <div class="idea-card__meta">
+            <span class="idea-card__date"><%= new Date(idea.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) %></span>
+            <span class="idea-card__status idea-card__status--<%= idea.status %>">
+              <%= { pending: '💭 Idea', done: '✅ Done!', favorite: '❤️ Favourite' }[idea.status] %>
+            </span>
+          </div>
+
+          <div class="idea-card__actions">
+            <!-- Status toggles: each button submits its own value via name="status" -->
+            <form action="/adventure/<%= idea.id %>/status" method="POST" class="status-form">
+              <% if (idea.status !== 'favorite') { %>
+                <button type="submit" name="status" value="favorite"
+                        class="btn-icon" title="Mark as Favourite">❤️</button>
+              <% } %>
+              <% if (idea.status !== 'done') { %>
+                <button type="submit" name="status" value="done"
+                        class="btn-icon" title="Mark as Done">✅</button>
+              <% } %>
+              <% if (idea.status !== 'pending') { %>
+                <button type="submit" name="status" value="pending"
+                        class="btn-icon" title="Reset to Idea">💭</button>
+              <% } %>
+            </form>
+            <!-- Delete -->
+            <form action="/adventure/<%= idea.id %>/delete" method="POST"
+                  onsubmit="return confirm('Remove this idea?')">
+              <button type="submit" class="btn-icon btn-icon--danger" title="Delete">🗑️</button>
+            </form>
+          </div>
+
+        </article>
+        <% }) %>
+      </div>
+    </section>
+    <% } %>
+
+    <!-- ── Inspiration ──────────────────────────────────────── -->
+    <section class="inspiration-section">
+      <h2 class="section-title section-title--left">Need inspiration? ✨</h2>
+      <p class="inspiration-intro">Here are a few ideas to get you started:</p>
+      <div class="ideas-grid ideas-grid--suggestions">
+        <% suggestedIdeas.forEach(idea => { %>
+        <article class="idea-card idea-card--suggestion">
+          <div class="idea-card__badges">
+            <span class="badge badge--vibe"><%= {
+              cozy: '🍵 Cozy', adventurous: '🏔️ Adventurous',
+              foodie: '🍽️ Foodie', artsy: '🎨 Artsy', chill: '😌 Chill'
+            }[idea.vibe] || idea.vibe %></span>
+            <span class="badge badge--budget"><%= idea.budget %></span>
+            <span class="badge badge--location"><%= {
+              'at home': '🏠', indoors: '🏢', outdoors: '🌿',
+              'out on the town': '🌆'
+            }[idea.location] || '' %> <%= idea.location %></span>
+          </div>
+          <p class="idea-card__notes"><%= idea.notes %></p>
+        </article>
+        <% }) %>
+      </div>
+    </section>
+
+  </div>
+</main>
+
+<%- include('partials/footer') %>
