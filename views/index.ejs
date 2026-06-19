@@ -1,0 +1,81 @@
+<%- include('partials/head') %>
+<%- include('partials/nav') %>
+
+<main>
+
+  <!-- ── Hero section ─────────────────────────────────────── -->
+  <section class="hero">
+
+    <div class="hero__text">
+      <p class="hero__eyebrow">💕 Welcome to</p>
+      <h1 class="hero__title">GBAGL</h1>
+      <p class="hero__subtitle">Gunna Be a Great Life</p>
+      <p class="hero__description">
+        A little corner of the internet just for us — our adventures,
+        our milestones, and all the beautiful days still ahead. 🌸
+      </p>
+      <a href="/adventure" class="btn btn--primary">Plan an Adventure ✨</a>
+    </div>
+
+    <!-- Photo Collage -->
+    <!-- 📸 REPLACE: swap these placeholder images for real photos of you two!
+         Just drop your JPG/PNG files into /public/images/ and update the src
+         attributes below (e.g. src="/images/us-at-paris.jpg"). -->
+    <div class="collage" aria-label="Photo collage">
+      <div class="collage__item collage__item--tall">
+        <img src="/images/photo-1.svg" alt="📸 Add your favourite photo here"
+             class="collage__img" loading="lazy" />
+      </div>
+      <div class="collage__item">
+        <img src="/images/photo-2.svg" alt="📸 A favourite memory"
+             class="collage__img" loading="lazy" />
+      </div>
+      <div class="collage__item">
+        <img src="/images/photo-3.svg" alt="📸 An adventure together"
+             class="collage__img" loading="lazy" />
+      </div>
+      <div class="collage__item">
+        <img src="/images/photo-4.svg" alt="📸 A cozy moment"
+             class="collage__img" loading="lazy" />
+      </div>
+      <div class="collage__item">
+        <img src="/images/photo-5.svg" alt="📸 A happy day together"
+             class="collage__img" loading="lazy" />
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ── Features section ──────────────────────────────────── -->
+  <section class="features">
+    <div class="container">
+      <h2 class="section-title">What's inside 💖</h2>
+      <div class="features__grid">
+
+        <div class="feature-card">
+          <div class="feature-card__icon">🗺️</div>
+          <h3 class="feature-card__title">Adventure Planner</h3>
+          <p class="feature-card__text">
+            Pick a vibe, set a budget, and save date ideas so you never
+            run out of things to do together. Ideas sync across devices! 📱
+          </p>
+          <a href="/adventure" class="btn btn--outline">Let's Plan →</a>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-card__icon">📖</div>
+          <h3 class="feature-card__title">Our Timeline</h3>
+          <p class="feature-card__text">
+            Every milestone, every first, every memory — all in one place.
+            Our story, from the very beginning.
+          </p>
+          <a href="/timeline" class="btn btn--outline">See Our Story →</a>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<%- include('partials/footer') %>

@@ -1,0 +1,19 @@
+<nav class="nav">
+  <div class="nav__container">
+    <a href="/" class="nav__logo">💕 GBAGL</a>
+    <button class="nav__toggle" id="navToggle" aria-label="Toggle navigation">
+      <span></span><span></span><span></span>
+    </button>
+    <ul class="nav__links" id="navLinks">
+      <li>
+        <a href="/" class="nav__link<%= page === 'home'      ? ' nav__link--active' : '' %>">Home</a>
+      </li>
+      <li>
+        <a href="/adventure" class="nav__link<%= page === 'adventure' ? ' nav__link--active' : '' %>">✨ Adventure</a>
+      </li>
+      <li>
+        <a href="/timeline"  class="nav__link<%= page === 'timeline'  ? ' nav__link--active' : '' %>">📖 Timeline</a>
+      </li>
+    </ul>
+  </div>
+</nav>
