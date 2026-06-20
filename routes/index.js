@@ -1,5 +1,5 @@
 /**
- * routes/index.js — Landing page
+ * routes/index.js — Home (unlocked) landing page
  */
 
 const express = require('express');
@@ -7,7 +7,7 @@ const router  = express.Router();
 
 router.get('/', (req, res) => {
   res.render('index', {
-    title: 'GBAGL — Gunna Be a Great Life',
+    title: 'Home — GBAGL',
     page:  'home',
   });
 });

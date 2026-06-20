@@ -6,7 +6,8 @@
 
 | Page | URL | What it does |
 |------|-----|-------------|
-| **Home** | `/` | Hero photo collage + introduction |
+| **Anniversary Gate** | `/` | Secure unlock screen (date required) |
+| **Home** | `/home` | Hero photo collage + introduction |
 | **Adventure** | `/adventure` | Date-idea planner — save, favourite, and mark as done |
 | **Timeline** | `/timeline` | Scrollable history of your relationship milestones |
 
@@ -42,7 +43,8 @@ npm install
 
 # 3. Create your environment file
 cp .env.example .env
-# Now open .env in a text editor and fill in your database details
+# Now open .env in a text editor and set ANNIVERSARY_DATE + GATE_SECRET
+# (and optionally DB details if you want Adventure persistence)
 # (If you have no DB yet, leave the defaults — the site still runs!)
 
 # 4. Start the server
@@ -80,12 +82,21 @@ FLUSH PRIVILEGES;
 Then update your `.env` file:
 
 ```env
+ANNIVERSARY_DATE=2025-01-01
+GATE_SECRET=replace_with_a_long_random_secret
 DB_HOST=localhost
 DB_PORT=3306
 DB_USER=gbagl_user
 DB_PASSWORD=yourpassword
 DB_NAME=gbagl_db
 ```
+
+### Anniversary gate (server-side security)
+
+- `ANNIVERSARY_DATE` is the unlock answer in `YYYY-MM-DD` format.
+- `GATE_SECRET` signs the unlock cookie with HMAC (`crypto`), so unlock state is verified server-side.
+- Keep both values private in `.env` (or hosting env vars). Never commit your real date/secret.
+- To change the anniversary later, update `ANNIVERSARY_DATE` and restart the app.
 
 Restart the server (`npm start`) and you should see:
 ```
@@ -129,6 +140,8 @@ Set all five DB variables, plus `PORT` if required:
 
 ```
 PORT=<assigned by Gandi, often 3000 or set automatically>
+ANNIVERSARY_DATE=<YYYY-MM-DD>
+GATE_SECRET=<long random string>
 DB_HOST=<your Gandi MySQL host, e.g. yourdomain.mysql.db>
 DB_PORT=3306
 DB_USER=<your DB username>
@@ -202,6 +215,7 @@ Open `public/css/style.css` and edit the `:root` block at the top:
 ### Change the tagline or copy
 
 - **Hero text:** `views/index.ejs` (the `<section class="hero">` block)
+- **Anniversary gate text:** `views/gate.ejs`
 - **Adventure page intro:** `views/adventure.ejs`
 - **Timeline intro:** `views/timeline.ejs`
 
@@ -219,15 +233,21 @@ gbagl/
 ├── .nvmrc                 ← Node version hint
 │
 ├── routes/
-│   ├── index.js           ← Landing page route
+│   ├── gate.js            ← Anniversary gate + unlock endpoint
+│   ├── index.js           ← Home page route (`/home`)
 │   ├── adventure.js       ← Date planner routes (CRUD)
 │   └── timeline.js        ← Timeline route
+├── middleware/
+│   └── requireUnlocked.js ← Protects inner routes with unlock check
+├── lib/
+│   └── gate-token.js      ← HMAC signing/verification for unlock cookie
 │
 ├── data/
 │   └── timeline.js        ← ✏️ Edit your milestone data here
 │
 ├── views/
-│   ├── index.ejs          ← Landing page template
+│   ├── gate.ejs           ← Anniversary gate template (`/`)
+│   ├── index.ejs          ← Home page template (`/home`)
 │   ├── adventure.ejs      ← Adventure planner template
 │   ├── timeline.ejs       ← Timeline template
 │   ├── 404.ejs            ← 404 error page
@@ -239,6 +259,7 @@ gbagl/
 └── public/
     ├── css/style.css      ← ✏️ All styles (edit colors/fonts here)
     ├── js/main.js         ← Client-side JS (mobile nav, alerts)
+    ├── js/gate.js         ← Gate hearts animation script
     └── images/            ← ✏️ Drop your real photos here
         ├── photo-1.svg    ← Placeholder — replace with your photo
         └── ...

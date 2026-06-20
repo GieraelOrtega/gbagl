@@ -13,6 +13,7 @@ require('dotenv').config(); // Load .env variables before anything else
 const express = require('express');
 const path    = require('path');
 const { initDb } = require('./db');
+const requireUnlocked = require('./middleware/requireUnlocked');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -28,7 +29,10 @@ app.use(express.json());                          // Parse JSON bodies
 app.use(express.static(path.join(__dirname, 'public'))); // Serve CSS/JS/images
 
 // ── Routes ─────────────────────────────────────────────────
-app.use('/',          require('./routes/index'));
+app.use('/', require('./routes/gate'));
+
+app.use(requireUnlocked);
+app.use('/home',      require('./routes/index'));
 app.use('/adventure', require('./routes/adventure'));
 app.use('/timeline',  require('./routes/timeline'));
 
