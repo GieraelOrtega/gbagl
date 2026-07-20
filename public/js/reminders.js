@@ -17,11 +17,16 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     if (!response.ok) throw new Error('Reminder feed unavailable');
     const payload = await response.json();
+    const formatReminderTime = window.gbaglReminderFormat?.formatReminderTime;
     payload.reminders.forEach((reminder) => {
       const key = `gbagl-reminder-${reminder.id}-${reminder.reminderAt}`;
       if (localStorage.getItem(key)) return;
       const notification = new Notification(reminder.title, {
-        body: `Scheduled for ${new Date(reminder.eventAt).toLocaleString()}`,
+        body: `Scheduled for ${
+          formatReminderTime
+            ? formatReminderTime(reminder.eventAt, payload.timeZone)
+            : new Date(reminder.eventAt).toLocaleString()
+        }`,
         tag: `gbagl-event-${reminder.id}`,
       });
       notification.addEventListener('click', () => {
