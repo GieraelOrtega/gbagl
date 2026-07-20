@@ -40,18 +40,20 @@ All HTML form writes use CSRF tokens. Missing or invalid tokens receive an expli
 
 ## Database and migrations
 
-Configure `DB_USER`, `DB_PASSWORD`, and `DB_NAME`, plus either `DB_SOCKET` or the TCP settings `DB_HOST` and `DB_PORT`. A nonblank `DB_SOCKET` takes precedence and omits host and port from the MySQL connection. On startup the app idempotently creates these application-owned tables:
+Configure the app-scoped `GBAGL_DB_USER`, `GBAGL_DB_PASSWORD`, and `GBAGL_DB_NAME`, plus either `GBAGL_DB_SOCKET` or the TCP settings `GBAGL_DB_HOST` and `GBAGL_DB_PORT`. Each app-scoped key takes precedence when it is defined, including an explicitly empty password. The generic `DB_*` names remain supported when their corresponding app-scoped keys are absent.
 
-Gandi Simple Hosting exposes MySQL through a Unix socket rather than TCP. Its standard database configuration is:
+Gandi Simple Hosting exposes MySQL through a Unix socket rather than TCP and may inject unrelated generic `DB_USER` and `DB_PASSWORD` values. Use the app-scoped names to avoid those platform collisions:
 
 ```env
-DB_SOCKET=/srv/run/mysqld/mysqld.sock
-DB_USER=root
-DB_PASSWORD=
-DB_NAME=default_db
+GBAGL_DB_HOST=localhost
+GBAGL_DB_PORT=0
+GBAGL_DB_SOCKET=/srv/run/mysqld/mysqld.sock
+GBAGL_DB_USER=root
+GBAGL_DB_PASSWORD=
+GBAGL_DB_NAME=default_db
 ```
 
-With `DB_SOCKET` set, `DB_HOST` and `DB_PORT` are ignored. Keep the empty password only when using Gandi's local socket defaults; use the credentials supplied by the host if they have been changed.
+With a nonblank `GBAGL_DB_SOCKET`, host and port are omitted from the MySQL connection. Defining `GBAGL_DB_SOCKET=` as blank intentionally selects the existing TCP fallback instead of a generic `DB_SOCKET`. Keep the empty password only when using Gandi's local socket defaults; use the credentials supplied by the host if they have been changed. On startup the app idempotently creates these application-owned tables:
 
 - `date_ideas`
 - `site_settings`

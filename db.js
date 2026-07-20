@@ -12,22 +12,27 @@ let pool = null;
 let dbAvailable = false;
 const TIMELINE_IMPORT_MARKER = 'timeline_import_complete';
 
+function selectEnvValue(env, scopedKey, genericKey) {
+  return env[scopedKey] !== undefined ? env[scopedKey] : env[genericKey];
+}
+
 function buildPoolOptions(env = process.env) {
-  const socketPath = typeof env.DB_SOCKET === 'string'
-    ? env.DB_SOCKET.trim()
+  const configuredSocket = selectEnvValue(env, 'GBAGL_DB_SOCKET', 'DB_SOCKET');
+  const socketPath = typeof configuredSocket === 'string'
+    ? configuredSocket.trim()
     : '';
   const connection = socketPath
     ? { socketPath }
     : {
-      host: env.DB_HOST || 'localhost',
-      port: parseInt(env.DB_PORT || '3306', 10),
+      host: selectEnvValue(env, 'GBAGL_DB_HOST', 'DB_HOST') || 'localhost',
+      port: parseInt(selectEnvValue(env, 'GBAGL_DB_PORT', 'DB_PORT') || '3306', 10),
     };
 
   return {
     ...connection,
-    user: env.DB_USER || 'root',
-    password: env.DB_PASSWORD || '',
-    database: env.DB_NAME || 'gbagl',
+    user: selectEnvValue(env, 'GBAGL_DB_USER', 'DB_USER') || 'root',
+    password: selectEnvValue(env, 'GBAGL_DB_PASSWORD', 'DB_PASSWORD') ?? '',
+    database: selectEnvValue(env, 'GBAGL_DB_NAME', 'DB_NAME') || 'gbagl',
     waitForConnections: true,
     connectionLimit: 10,
     timezone: 'Z',
