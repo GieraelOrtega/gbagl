@@ -22,3 +22,6 @@ Thumbs.db
 pids/
 *.pid
 *.seed
+runtime/
+backups/
+uploads/

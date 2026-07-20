@@ -1,0 +1,13 @@
+<%- include('partials/head') %>
+<%- include('partials/nav') %>
+
+<main class="error-page">
+  <div class="container">
+    <div class="error-page__icon" aria-hidden="true">🔒</div>
+    <h1 class="error-page__title"><%= status %></h1>
+    <p class="error-page__message"><%= message %></p>
+    <a href="/" class="btn btn--primary">Return home</a>
+  </div>
+</main>
+
+<%- include('partials/footer') %>

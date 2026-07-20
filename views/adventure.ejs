@@ -27,6 +27,7 @@
     <section class="card form-card">
       <h2 class="card__title">✍️ Add a New Idea</h2>
       <form action="/adventure" method="POST" class="idea-form">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
 
         <div class="form-row">
           <!-- Vibe -->
@@ -126,6 +127,7 @@
           <div class="idea-card__actions">
             <!-- Status toggles: each button submits its own value via name="status" -->
             <form action="/adventure/<%= idea.id %>/status" method="POST" class="status-form">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
               <% if (idea.status !== 'favorite') { %>
                 <button type="submit" name="status" value="favorite"
                         class="btn-icon" title="Mark as Favourite">❤️</button>
@@ -140,8 +142,8 @@
               <% } %>
             </form>
             <!-- Delete -->
-            <form action="/adventure/<%= idea.id %>/delete" method="POST"
-                  onsubmit="return confirm('Remove this idea?')">
+            <form action="/adventure/<%= idea.id %>/delete" method="POST">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
               <button type="submit" class="btn-icon btn-icon--danger" title="Delete">🗑️</button>
             </form>
           </div>
