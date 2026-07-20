@@ -87,14 +87,38 @@ test('existing deployment rows are marked migrated without being overwritten', a
   assert.equal(fake.state.marker, 'complete');
 });
 
-test('successful empty timeline query is authoritative while query errors fall back', async () => {
+test('complete migration marker makes an empty timeline authoritative', async () => {
   const fallback = [{ title: 'File fallback' }];
   assert.deepEqual(await loadMilestones({
     databaseAvailable: () => true,
-    databasePool: () => ({ execute: async () => [[]] }),
+    databasePool: () => ({
+      execute: async (sql, params = []) => {
+        if (sql.includes('FROM timeline_milestones')) return [[]];
+        assert.equal(params[0], TIMELINE_IMPORT_MARKER);
+        return [[{ setting_value: 'complete' }]];
+      },
+    }),
     fallback,
   }), []);
+});
 
+test('absent or pending migration marker preserves file fallback for empty rows', async () => {
+  const fallback = [{ title: 'Private file fallback' }];
+  for (const markerRows of [[], [{ setting_value: 'pending' }]]) {
+    assert.deepEqual(await loadMilestones({
+      databaseAvailable: () => true,
+      databasePool: () => ({
+        execute: async (sql) => (
+          sql.includes('FROM timeline_milestones') ? [[]] : [markerRows]
+        ),
+      }),
+      fallback,
+    }), fallback);
+  }
+});
+
+test('timeline query errors use file fallback', async () => {
+  const fallback = [{ title: 'File fallback' }];
   assert.deepEqual(await loadMilestones({
     databaseAvailable: () => true,
     databasePool: () => ({ execute: async () => { throw new Error('offline'); } }),
