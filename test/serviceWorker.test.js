@@ -35,7 +35,11 @@ function createWorkerHarness() {
   const state = {
     deleteImpl: async (name) => cacheData.delete(name),
     fetchImpl: async () => { throw new Error('offline'); },
+    getNotificationsImpl: async () => [],
     privateMatchCalls: 0,
+    putImpl: async (entries, key, value) => {
+      entries.set(key, value.clone());
+    },
   };
 
   function cacheKey(request) {
@@ -61,7 +65,10 @@ function createWorkerHarness() {
       return {
         async addAll() {},
         async put(request, value) {
-          entries.set(cacheKey(request), value.clone());
+          await state.putImpl(entries, cacheKey(request), value);
+        },
+        async delete(request) {
+          return entries.delete(cacheKey(request));
         },
       };
     },
@@ -77,7 +84,9 @@ function createWorkerHarness() {
     },
     location: { origin: 'https://gba.gl' },
     crypto: { randomUUID: () => 'worker-test' },
-    registration: { getNotifications: async () => [] },
+    registration: {
+      getNotifications: (...args) => state.getNotificationsImpl(...args),
+    },
     skipWaiting: async () => {},
   };
   const context = vm.createContext({
@@ -330,17 +339,27 @@ test('authenticated snapshot refreshes preserve the active private cache', async
 test('revocation prevents an older in-flight media response from caching', async () => {
   const harness = createWorkerHarness();
   await authorize(harness);
-  const mediaResponse = deferred();
-  harness.state.fetchImpl = async () => mediaResponse.promise;
+  const putStarted = deferred();
+  const finishPut = deferred();
+  harness.state.deleteImpl = async () => { throw new Error('disk failure'); };
+  harness.state.putImpl = async (entries, key, value) => {
+    entries.set(key, value.clone());
+    putStarted.resolve();
+    await finishPut.promise;
+  };
+  harness.state.fetchImpl = async () => response('photo', {
+    cacheOptIn: policy.MEDIA_OPT_IN,
+    contentType: 'image/jpeg',
+  });
   const mediaRequest = new Request('https://gba.gl/albums/photos/7/content');
   const inFlight = harness.hooks.protectedMediaResponse(mediaRequest);
 
-  await harness.hooks.revokePrivateData();
-  mediaResponse.resolve(response('photo', {
-    cacheOptIn: policy.MEDIA_OPT_IN,
-    contentType: 'image/jpeg',
-  }));
+  await putStarted.promise;
+  const purge = harness.hooks.revokePrivateData();
+  assert.equal(harness.hooks.state().accessAllowed, false);
+  finishPut.resolve();
   const networkResponse = await inFlight;
+  await purge;
   assert.equal(await networkResponse.text(), 'photo');
   assert.equal(
     [...harness.cacheData.entries()]
@@ -349,4 +368,20 @@ test('revocation prevents an older in-flight media response from caching', async
     false,
   );
   assert.equal(harness.hooks.state().accessAllowed, false);
+});
+
+test('notifications close independently when private cache deletion rejects', async () => {
+  const harness = createWorkerHarness();
+  await authorize(harness);
+  let closed = 0;
+  harness.state.deleteImpl = async () => { throw new Error('disk failure'); };
+  harness.state.getNotificationsImpl = async () => [
+    { close: () => { closed += 1; } },
+    { close: () => { closed += 1; } },
+  ];
+
+  await harness.hooks.revokePrivateData();
+
+  assert.equal(harness.hooks.state().accessAllowed, false);
+  assert.equal(closed, 2);
 });

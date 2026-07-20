@@ -22,34 +22,97 @@ function privateCacheName(generation) {
   return `${PRIVATE_CACHE_PREFIX}${PRIVATE_INSTANCE}-${generation}`;
 }
 
+function privateStateMatches(expectedGeneration, expectedCache) {
+  return privateAccessAllowed
+    && expectedCache
+    && expectedGeneration === privateGeneration
+    && expectedCache === activePrivateCache;
+}
+
+async function deletePrivateCaches() {
+  return withPrivateCache(async () => {
+    let names;
+    try {
+      names = await caches.keys();
+    } catch (error) {
+      console.error('GBAGL private cache listing failed; access remains revoked:', error);
+      return;
+    }
+    const results = await Promise.allSettled(names
+      .filter((name) => name.startsWith(PRIVATE_CACHE_ROOT))
+      .map((name) => caches.delete(name)));
+    results
+      .filter((result) => result.status === 'rejected')
+      .forEach((result) => {
+        console.error(
+          'GBAGL private cache purge failed; access remains revoked:',
+          result.reason,
+        );
+      });
+  });
+}
+
+async function closeNotifications() {
+  try {
+    const notifications = await self.registration.getNotifications();
+    const results = await Promise.allSettled(notifications.map(
+      (notification) => Promise.resolve().then(() => notification.close()),
+    ));
+    results
+      .filter((result) => result.status === 'rejected')
+      .forEach((result) => {
+        console.warn('GBAGL notification cleanup failed:', result.reason);
+      });
+  } catch (error) {
+    console.warn('GBAGL notification cleanup failed:', error);
+  }
+}
+
+async function notifyAuthorizationLost() {
+  try {
+    const clients = await self.clients.matchAll({ includeUncontrolled: true });
+    const results = await Promise.allSettled(clients.map(
+      (client) => Promise.resolve().then(
+        () => client.postMessage({ type: 'AUTHORIZATION_LOST' }),
+      ),
+    ));
+    results
+      .filter((result) => result.status === 'rejected')
+      .forEach((result) => {
+        console.warn('GBAGL authorization-loss notification failed:', result.reason);
+      });
+  } catch (error) {
+    console.warn('GBAGL authorization-loss notification failed:', error);
+  }
+}
+
 function revokePrivateData(notifyClients = false) {
   privateGeneration += 1;
   privateAccessAllowed = false;
   activePrivateCache = null;
-  return withPrivateCache(async () => {
-    try {
-      const names = await caches.keys();
-      await Promise.all(names
-        .filter((name) => name.startsWith(PRIVATE_CACHE_ROOT))
-        .map((name) => caches.delete(name)));
-    } catch (error) {
-      console.error('GBAGL private cache purge failed; access remains revoked:', error);
-    }
-    try {
-      const notifications = await self.registration.getNotifications();
-      notifications.forEach((notification) => notification.close());
-    } catch (error) {
-      console.warn('GBAGL notification cleanup failed:', error);
-    }
-    if (notifyClients) {
-      try {
-        const clients = await self.clients.matchAll({ includeUncontrolled: true });
-        clients.forEach((client) => client.postMessage({ type: 'AUTHORIZATION_LOST' }));
-      } catch (error) {
-        console.warn('GBAGL authorization-loss notification failed:', error);
-      }
-    }
-  });
+  const cleanup = [
+    deletePrivateCaches(),
+    closeNotifications(),
+  ];
+  if (notifyClients) cleanup.push(notifyAuthorizationLost());
+  return Promise.allSettled(cleanup).then(() => undefined);
+}
+
+async function putPrivateCacheEntry(
+  cache,
+  request,
+  response,
+  expectedGeneration,
+  expectedCache,
+) {
+  await cache.put(request, response);
+  if (privateStateMatches(expectedGeneration, expectedCache)) return true;
+  try {
+    await cache.delete(request);
+  } catch (error) {
+    console.warn('GBAGL stale private cache write cleanup failed:', error);
+  }
+  return false;
 }
 
 async function fetchWithAuthorizationCheck(request) {
@@ -100,12 +163,14 @@ async function authorizePrivateCache(value) {
         activePrivateCache = grantedCache;
       }
       const cache = await caches.open(grantedCache);
-      if (
-        !privateAccessAllowed
-        || grantedGeneration !== privateGeneration
-        || activePrivateCache !== grantedCache
-      ) return;
-      await cache.put(new Request(canonicalUrl), response);
+      if (!privateStateMatches(grantedGeneration, grantedCache)) return;
+      await putPrivateCacheEntry(
+        cache,
+        new Request(canonicalUrl),
+        response,
+        grantedGeneration,
+        grantedCache,
+      );
     });
   } catch (error) {
     console.warn('GBAGL snapshot cache write failed:', error);
@@ -115,18 +180,9 @@ async function authorizePrivateCache(value) {
 async function privateCacheMatch(request, expectedGeneration, expectedCache) {
   try {
     return await withPrivateCache(async () => {
-      if (
-        !privateAccessAllowed
-        || !expectedCache
-        || expectedGeneration !== privateGeneration
-        || expectedCache !== activePrivateCache
-      ) return null;
+      if (!privateStateMatches(expectedGeneration, expectedCache)) return null;
       const cached = await caches.match(request, { cacheName: expectedCache });
-      if (
-        !privateAccessAllowed
-        || expectedGeneration !== privateGeneration
-        || expectedCache !== activePrivateCache
-      ) return null;
+      if (!privateStateMatches(expectedGeneration, expectedCache)) return null;
       return cached || null;
     });
   } catch (error) {
@@ -163,25 +219,20 @@ async function protectedMediaResponse(request) {
       response.status === 200
       && !response.redirected
       && response.headers.get(policy.PRIVATE_SNAPSHOT_HEADER) === policy.MEDIA_OPT_IN
-      && privateAccessAllowed
-      && expectedCache
-      && expectedGeneration === privateGeneration
-      && expectedCache === activePrivateCache
+      && privateStateMatches(expectedGeneration, expectedCache)
     ) {
       try {
         await withPrivateCache(async () => {
-          if (
-            !privateAccessAllowed
-            || expectedGeneration !== privateGeneration
-            || expectedCache !== activePrivateCache
-          ) return;
+          if (!privateStateMatches(expectedGeneration, expectedCache)) return;
           const cache = await caches.open(expectedCache);
-          if (
-            !privateAccessAllowed
-            || expectedGeneration !== privateGeneration
-            || expectedCache !== activePrivateCache
-          ) return;
-          await cache.put(request, response.clone());
+          if (!privateStateMatches(expectedGeneration, expectedCache)) return;
+          await putPrivateCacheEntry(
+            cache,
+            request,
+            response.clone(),
+            expectedGeneration,
+            expectedCache,
+          );
         });
       } catch (error) {
         console.warn('GBAGL photo cache write failed:', error);
