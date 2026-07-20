@@ -20,7 +20,7 @@ async function loadMilestones({
   try {
     const pool = databasePool();
     const [rows] = await pool.execute(
-      `SELECT milestone_date AS date, title, description, emoji, photo, link_url
+      `SELECT id, milestone_date AS date, title, description, emoji, photo, link_url
        FROM timeline_milestones ORDER BY display_order, id`,
     );
     if (rows.length > 0) return rows;
@@ -43,10 +43,29 @@ async function loadMilestones({
 
 router.get('/', async (req, res) => {
   const milestones = await loadMilestones();
+  let journals = [];
+  let journalError = null;
+  if (!isDbAvailable()) {
+    journalError = 'Linked journal entries are unavailable while the database is offline.';
+  } else {
+    try {
+      [journals] = await getPool().execute(
+        `SELECT id, milestone_id, title, body,
+                DATE_FORMAT(entry_date, '%Y-%m-%d') AS entry_date
+         FROM journal_entries WHERE milestone_id IS NOT NULL
+         ORDER BY entry_date DESC, id DESC`,
+      );
+    } catch (error) {
+      console.error('Timeline journal load failed:', error.message);
+      journalError = 'Linked journal entries could not be loaded.';
+    }
+  }
   res.render('timeline', {
     title:      'Our Timeline — GBAGL',
     page:       'timeline',
     milestones,
+    journals,
+    journalError,
   });
 });
 

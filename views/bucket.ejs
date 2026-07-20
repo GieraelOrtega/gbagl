@@ -1,0 +1,74 @@
+<%- include('partials/head') %>
+<%- include('partials/nav') %>
+<main class="content-page">
+  <div class="container">
+    <header class="page-header">
+      <h1 class="page-header__title">Our Bucket List</h1>
+      <p class="page-header__subtitle">Dream together, vote together, remember together.</p>
+    </header>
+    <% if (message) { %><div class="alert alert--success"><%= message %></div><% } %>
+    <% if (error) { %><div class="alert alert--error"><%= error %></div><% } %>
+    <% if (dbError) { %><div class="alert alert--warning"><%= dbError %></div><% } %>
+    <div class="hub-grid">
+      <% items.forEach((item) => { %>
+        <article class="card hub-card <%= item.completed_at ? 'hub-card--complete' : '' %>">
+          <header class="hub-card__header">
+            <div>
+              <span class="tag"><%= item.category %></span>
+              <% if (item.is_favorite) { %><span aria-label="Favorite">★</span><% } %>
+              <h2 class="card__title"><%= item.title %></h2>
+            </div>
+            <form action="/bucket/<%= item.id %>/favorite" method="post">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+              <button class="btn btn--outline" type="submit"><%= item.is_favorite ? 'Unfavorite' : 'Favorite' %></button>
+            </form>
+          </header>
+          <p><%= item.description %></p>
+          <% if (item.target_date) { %><p><strong>Target:</strong> <%= item.target_date %></p><% } %>
+          <div class="vote-grid">
+            <% ['partner_one', 'partner_two'].forEach((slot) => { %>
+              <form action="/bucket/<%= item.id %>/vote" method="post" class="compact-form">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                <input type="hidden" name="voter_slot" value="<%= slot %>" />
+                <label class="form-label" for="vote-<%= item.id %>-<%= slot %>"><%= labels[slot] %></label>
+                <select class="form-select" id="vote-<%= item.id %>-<%= slot %>" name="vote">
+                  <% ['yes', 'maybe', 'not_yet'].forEach((vote) => { %>
+                    <option value="<%= vote %>" <%= item[`${slot}_vote`] === vote ? 'selected' : '' %>><%= vote.replace('_', ' ') %></option>
+                  <% }) %>
+                </select>
+                <button class="btn btn--outline" type="submit">Save vote</button>
+                <% if (item[`${slot}_vote`]) { %><small>Choose the same vote again to remove it.</small><% } %>
+              </form>
+            <% }) %>
+          </div>
+          <form action="/bucket/<%= item.id %>/completion" method="post" class="compact-form">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+            <% if (item.completed_at) { %>
+              <input type="hidden" name="completed" value="0" />
+              <p><strong>Completed:</strong> <%= item.completed_at %></p>
+              <button class="btn btn--outline" type="submit">Reopen</button>
+            <% } else { %>
+              <input type="hidden" name="completed" value="1" />
+              <label class="form-label" for="complete-<%= item.id %>">Completion date</label>
+              <input class="form-input" id="complete-<%= item.id %>" name="completed_at" type="date" required />
+              <button class="btn btn--primary" type="submit">Mark complete</button>
+            <% } %>
+          </form>
+          <% if (item.completed_at) { %>
+            <form action="/bucket/<%= item.id %>/memory" method="post" class="compact-form">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+              <label class="form-label" for="memory-<%= item.id %>">Memory or reflection</label>
+              <textarea class="form-textarea" id="memory-<%= item.id %>" name="memory"
+                        maxlength="8000"><%= item.memory || '' %></textarea>
+              <button class="btn btn--primary" type="submit">Save memory</button>
+            </form>
+          <% } %>
+        </article>
+      <% }) %>
+    </div>
+    <% if (!dbError && items.length === 0) { %>
+      <div class="empty-state"><h2>No dreams yet</h2><p>An admin can add the first bucket-list item.</p></div>
+    <% } %>
+  </div>
+</main>
+<%- include('partials/footer') %>

@@ -12,7 +12,7 @@ const CSRF_COOKIE = 'gbagl_csrf';
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 function createCsrfProtection({ secret, secure }) {
-  return function csrfProtection(req, res, next) {
+  function initialize(req, res, next) {
     const cookies = parseCookies(req.headers.cookie);
     let token = verifySignedValue(cookies[CSRF_COOKIE], secret);
 
@@ -25,11 +25,22 @@ function createCsrfProtection({ secret, secure }) {
       ));
     }
 
+    req.csrfToken = token;
     res.locals.csrfToken = token;
+    return next();
+  }
+
+  function verify(req, res, next) {
     if (SAFE_METHODS.has(req.method)) return next();
 
     const supplied = req.body && req.body._csrf;
-    if (typeof supplied === 'string' && safeEqual(supplied, token)) return next();
+    if (
+      typeof supplied === 'string'
+      && typeof req.csrfToken === 'string'
+      && safeEqual(supplied, req.csrfToken)
+    ) {
+      return next();
+    }
 
     res.set('Cache-Control', 'no-store');
     return res.status(403).render('error', {
@@ -38,7 +49,14 @@ function createCsrfProtection({ secret, secure }) {
       status: 403,
       message: 'This form expired or could not be verified. Go back, refresh the page, and try again.',
     });
-  };
+  }
+
+  function csrfProtection(req, res, next) {
+    return initialize(req, res, () => verify(req, res, next));
+  }
+  csrfProtection.initialize = initialize;
+  csrfProtection.verify = verify;
+  return csrfProtection;
 }
 
 module.exports = { CSRF_COOKIE, createCsrfProtection };

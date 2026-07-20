@@ -20,12 +20,22 @@ const { createCsrfProtection } = require('./middleware/csrf');
 const { createPasscodeAuth, safeDestination } = require('./middleware/passcode');
 const { createBackupService, scheduleBackups } = require('./services/backup');
 const { createAdminRouter } = require('./routes/admin');
+const { createAdminHubRouter, createUploadIngress } = require('./routes/adminHub');
+const { createAlbumsRouter } = require('./routes/albums');
+const { createBucketRouter } = require('./routes/bucket');
+const { createJournalRouter } = require('./routes/journal');
+const { createRemindersRouter } = require('./routes/reminders');
 
 function createApp(config = loadConfig(), services = {}) {
   const app = express();
   const adminAuth = createAdminAuth(config);
   const passcodeAuth = createPasscodeAuth(config);
   const backupService = services.backupService || createBackupService(config);
+  const uploadConfig = {
+    ...config,
+    uploadDir: config.uploadDir || path.join(__dirname, 'runtime', 'uploads'),
+    uploadMaxBytes: config.uploadMaxBytes || 8 * 1024 * 1024,
+  };
 
   app.set('view engine', 'ejs');
   app.set('views', path.join(__dirname, 'views'));
@@ -57,10 +67,16 @@ function createApp(config = loadConfig(), services = {}) {
   app.get('/js/lock.js', (req, res) => {
     res.sendFile(path.join(__dirname, 'public/js/lock.js'));
   });
-  app.use(createCsrfProtection({
+  const csrfProtection = createCsrfProtection({
     secret: config.cookieSecret,
     secure: config.production,
-  }));
+  });
+  app.use(csrfProtection.initialize);
+  app.use(
+    '/admin/albums/photos/upload',
+    createUploadIngress(uploadConfig, adminAuth, passcodeAuth),
+  );
+  app.use(csrfProtection.verify);
 
   const unlockLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -102,10 +118,18 @@ function createApp(config = loadConfig(), services = {}) {
     return res.redirect(303, '/');
   });
   app.use(express.static(path.join(__dirname, 'public')));
-  app.use('/admin', createAdminRouter({ adminAuth, backupService }));
+  app.use('/admin', createAdminRouter({
+    adminAuth,
+    backupService,
+    config: uploadConfig,
+  }));
   app.use('/', require('./routes/index'));
   app.use('/adventure', require('./routes/adventure'));
   app.use('/timeline', require('./routes/timeline'));
+  app.use('/bucket', createBucketRouter());
+  app.use('/reminders', createRemindersRouter());
+  app.use('/albums', createAlbumsRouter(uploadConfig));
+  app.use('/journal', createJournalRouter());
   app.use((req, res) => {
     res.status(404).render('404', {
       title: '404 — Page Not Found | GBAGL',

@@ -7,6 +7,7 @@ const {
   validateMilestone,
   validateSettings,
 } = require('../lib/validation');
+const { createAdminHubRouter } = require('./adminHub');
 
 const VALID_STATUSES = ['pending', 'done', 'favorite'];
 
@@ -15,7 +16,7 @@ function redirectMessage(res, type, message) {
   return res.redirect(303, `/admin?${params}`);
 }
 
-function createAdminRouter({ adminAuth, backupService }) {
+function createAdminRouter({ adminAuth, backupService, config }) {
   const router = express.Router();
   const loginLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -57,6 +58,8 @@ function createAdminRouter({ adminAuth, backupService }) {
     adminAuth.clearAdminCookie(res);
     return res.redirect(303, '/admin/login');
   });
+
+  router.use(createAdminHubRouter(config));
 
   router.get('/', async (req, res) => {
     let settings = {};

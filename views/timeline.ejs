@@ -10,6 +10,7 @@
         Every milestone, every first, every memory — our story from the very beginning. 💕
       </p>
     </header>
+    <% if (journalError) { %><div class="alert alert--warning"><%= journalError %></div><% } %>
 
     <!-- ── Timeline ───────────────────────────────────────── -->
     <div class="timeline">
@@ -27,6 +28,16 @@
           <% if (milestone.link_url) { %>
             <p><a href="<%= milestone.link_url %>" rel="noopener noreferrer">Visit memory</a></p>
           <% } %>
+          <% const linkedEntries = milestone.id
+            ? journals.filter((entry) => entry.milestone_id === milestone.id)
+            : []; %>
+          <% linkedEntries.forEach((entry) => { %>
+            <aside class="timeline-journal">
+              <strong><%= entry.title %></strong>
+              <small><%= entry.entry_date %></small>
+              <p><%= entry.body %></p>
+            </aside>
+          <% }) %>
 
           <% if (milestone.photo) { %>
             <!-- 📸 Photo for this milestone -->

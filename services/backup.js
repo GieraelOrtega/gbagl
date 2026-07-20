@@ -7,15 +7,27 @@ const {
   MAX_BACKUP_INTERVAL_HOURS,
   MAX_TIMER_DELAY_MS,
   assertBackupPathsSeparated,
+  pathContains,
 } = require('../config');
+const { withMediaOperation } = require('./mediaCoordinator');
 
 const BACKUP_PATTERN = /^gbagl-backup-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z(?:-[a-f0-9]{12})?\.zip$/;
 const BACKUP_OUTPUT_GLOBS = [
   '**/gbagl-backup-*.zip',
   '**/gbagl-backup-*.zip.*.tmp',
 ];
-const TABLES = ['date_ideas', 'site_settings', 'timeline_milestones'];
-const SCHEMA_VERSION = 1;
+const TABLES = [
+  'date_ideas',
+  'site_settings',
+  'timeline_milestones',
+  'bucket_items',
+  'bucket_votes',
+  'shared_events',
+  'photo_albums',
+  'album_photos',
+  'journal_entries',
+];
+const SCHEMA_VERSION = 2;
 
 function backupFilename(date = new Date(), suffix = crypto.randomBytes(6).toString('hex')) {
   return `gbagl-backup-${date.toISOString().replace(/:/g, '-')}-${suffix}.zip`;
@@ -33,6 +45,17 @@ function resolveBackupPath(backupDir, filename) {
 
 function createBackupService(config, dependencies = {}) {
   assertBackupPathsSeparated(config.backupDir, config.backupMediaPaths);
+  if (
+    config.publicDir
+    && fs.existsSync(config.publicDir)
+    && fs.existsSync(config.backupDir)
+    && pathContains(
+      fs.realpathSync(config.publicDir),
+      fs.realpathSync(config.backupDir),
+    )
+  ) {
+    throw new Error('BACKUP_DIR resolves inside public/');
+  }
   const databaseAvailable = dependencies.isDbAvailable || isDbAvailable;
   const databasePool = dependencies.getPool || getPool;
   let creationQueue = Promise.resolve();
@@ -57,10 +80,16 @@ function createBackupService(config, dependencies = {}) {
     }
   }
 
-  async function createOne() {
+  async function createOneUnlocked() {
     if (!databaseAvailable()) throw new Error('Database is unavailable; backup was not created');
     await fs.promises.mkdir(config.backupDir, { recursive: true });
     const realBackupDir = await fs.promises.realpath(config.backupDir);
+    if (config.publicDir && fs.existsSync(config.publicDir)) {
+      const realPublicDir = await fs.promises.realpath(config.publicDir);
+      if (pathContains(realPublicDir, realBackupDir)) {
+        throw new Error('BACKUP_DIR resolves inside public/');
+      }
+    }
     const realMediaPaths = [];
     for (const mediaPath of config.backupMediaPaths) {
       if (fs.existsSync(mediaPath)) {
@@ -73,13 +102,26 @@ function createBackupService(config, dependencies = {}) {
     const filename = backupFilename(createdAt);
     const finalPath = resolveBackupPath(config.backupDir, filename);
     const temporaryPath = `${finalPath}.${crypto.randomUUID()}.tmp`;
+    const database = databasePool();
+    const connection = typeof database.getConnection === 'function'
+      ? await database.getConnection()
+      : database;
+    const ownsConnection = connection !== database;
     const tableData = {};
-    for (const table of TABLES) {
-      const [rows] = await databasePool().query(`SELECT * FROM \`${table}\``);
-      tableData[table] = rows;
-    }
-
+    let transactionStarted = false;
     try {
+      if (typeof connection.query === 'function' && typeof connection.commit === 'function') {
+        await connection.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+        await connection.query('START TRANSACTION WITH CONSISTENT SNAPSHOT');
+        transactionStarted = true;
+      } else if (typeof connection.beginTransaction === 'function') {
+        await connection.beginTransaction();
+        transactionStarted = true;
+      }
+      for (const table of TABLES) {
+        const [rows] = await connection.query(`SELECT * FROM \`${table}\``);
+        tableData[table] = rows;
+      }
       await new Promise((resolve, reject) => {
         const output = fs.createWriteStream(temporaryPath, { flags: 'wx' });
         const archive = archiver('zip', { zlib: { level: 9 } });
@@ -112,11 +154,15 @@ function createBackupService(config, dependencies = {}) {
         }
         archive.finalize();
       });
-
+      if (transactionStarted) await connection.commit();
+      transactionStarted = false;
       await fs.promises.rename(temporaryPath, finalPath);
     } catch (error) {
+      if (transactionStarted) await connection.rollback();
       await fs.promises.rm(temporaryPath, { force: true });
       throw error;
+    } finally {
+      if (ownsConnection) connection.release();
     }
 
     try {
@@ -125,6 +171,10 @@ function createBackupService(config, dependencies = {}) {
       console.error('Backup rotation failed:', error.message);
     }
     return { filename, path: finalPath };
+  }
+
+  function createOne() {
+    return withMediaOperation(createOneUnlocked);
   }
 
   function create() {
