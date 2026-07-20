@@ -102,6 +102,22 @@ test('complete migration marker makes an empty timeline authoritative', async ()
   }), []);
 });
 
+test('present database milestones return without consulting the migration marker', async () => {
+  const rows = [{ title: 'Database milestone' }];
+  let queryCount = 0;
+  assert.deepEqual(await loadMilestones({
+    databaseAvailable: () => true,
+    databasePool: () => ({
+      execute: async () => {
+        queryCount += 1;
+        return [rows];
+      },
+    }),
+    fallback: [{ title: 'File fallback' }],
+  }), rows);
+  assert.equal(queryCount, 1);
+});
+
 test('absent or pending migration marker preserves file fallback for empty rows', async () => {
   const fallback = [{ title: 'Private file fallback' }];
   for (const markerRows of [[], [{ setting_value: 'pending' }]]) {
