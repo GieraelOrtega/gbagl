@@ -22,6 +22,7 @@ document.addEventListener('DOMContentLoaded', () => {
     navLinks.querySelectorAll('.nav__link').forEach(link => {
       link.addEventListener('click', () => {
         navLinks.classList.remove('nav__links--open');
+        navToggle.setAttribute('aria-expanded', 'false');
       });
     });
   }

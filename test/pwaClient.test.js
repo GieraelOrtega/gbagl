@@ -14,7 +14,15 @@ function deferred() {
   return { promise, reject, resolve };
 }
 
-function createClientHarness(deleteImpl, { offlineSnapshot = false, onLine = true } = {}) {
+function createClientHarness(deleteImpl, {
+  displayStandalone = false,
+  maxTouchPoints = 0,
+  offlineSnapshot = false,
+  onLine = true,
+  platform = '',
+  standalone = false,
+  userAgent = '',
+} = {}) {
   const documentListeners = new Map();
   const formListeners = new Map();
   const windowListeners = new Map();
@@ -34,6 +42,15 @@ function createClientHarness(deleteImpl, { offlineSnapshot = false, onLine = tru
   };
   const statusContainer = { hidden: true };
   const announcer = { textContent: '' };
+  const installListeners = new Map();
+  const installButton = {
+    hidden: false,
+    addEventListener(type, listener) {
+      installListeners.set(type, listener);
+    },
+  };
+  const installHelp = { hidden: true, textContent: '' };
+  const pwaControls = { hidden: false };
   const form = {
     addEventListener(type, listener) {
       formListeners.set(type, listener);
@@ -53,6 +70,9 @@ function createClientHarness(deleteImpl, { offlineSnapshot = false, onLine = tru
       if (selector === '[data-network-status]') return [status];
       if (selector === '[data-network-status-container]') return [statusContainer];
       if (selector === '[data-network-status-announcer]') return [announcer];
+      if (selector === '[data-install-app]') return [installButton];
+      if (selector === '[data-install-help]') return [installHelp];
+      if (selector === '[data-pwa-controls]') return [pwaControls];
       return [];
     },
   };
@@ -89,8 +109,16 @@ function createClientHarness(deleteImpl, { offlineSnapshot = false, onLine = tru
       delete: deleteImpl,
     },
     location: { href: 'https://gba.gl/' },
+    matchMedia: () => ({ matches: displayStandalone }),
   };
-  const navigator = { onLine, serviceWorker };
+  const navigator = {
+    maxTouchPoints,
+    onLine,
+    platform,
+    serviceWorker,
+    standalone,
+    userAgent,
+  };
   const context = vm.createContext({
     console: { error() {}, warn() {} },
     document,
@@ -111,6 +139,10 @@ function createClientHarness(deleteImpl, { offlineSnapshot = false, onLine = tru
   documentListeners.get('DOMContentLoaded')();
   return {
     lockSubmit: formListeners.get('submit'),
+    clickInstall: () => installListeners.get('click')(),
+    dispatchWindow: (type, event) => windowListeners.get(type)(event),
+    installButton,
+    installHelp,
     messages,
     navigator,
     announcer,
@@ -152,7 +184,7 @@ test('Lock Now submission is not blocked when cache deletion rejects', async () 
   assert.equal(harness.submissions(), 1);
 });
 
-test('network status is visible only while offline and announces transitions', () => {
+test('network status is visible only while offline and never announces Online text', () => {
   const harness = createClientHarness(async () => true);
 
   assert.equal(harness.status.hidden, true);
@@ -172,7 +204,67 @@ test('network status is visible only while offline and announces transitions', (
   harness.updateNetworkStatus();
   assert.equal(harness.status.hidden, true);
   assert.equal(harness.statusContainer.hidden, true);
-  assert.equal(harness.announcer.textContent, 'Online');
+  assert.equal(harness.announcer.textContent, '');
+});
+
+test('Install Now stays visible and gives iPhone, iPad, Mac, and Windows guidance', async (t) => {
+  const platforms = [
+    {
+      name: 'iPhone',
+      options: { platform: 'iPhone', userAgent: 'iPhone' },
+      expected: /iPhone or iPad.*Share.*Add to Home Screen/,
+    },
+    {
+      name: 'iPad',
+      options: { platform: 'MacIntel', maxTouchPoints: 5, userAgent: 'Macintosh' },
+      expected: /iPhone or iPad.*Share.*Add to Home Screen/,
+    },
+    {
+      name: 'Mac',
+      options: { platform: 'MacIntel', userAgent: 'Macintosh' },
+      expected: /On Mac.*Add to Dock.*Chrome or Edge/,
+    },
+    {
+      name: 'Windows',
+      options: { platform: 'Win32', userAgent: 'Windows NT 10.0' },
+      expected: /On Windows.*Edge or Chrome/,
+    },
+  ];
+
+  for (const platform of platforms) {
+    await t.test(platform.name, async () => {
+      const harness = createClientHarness(async () => true, platform.options);
+      assert.equal(harness.installButton.hidden, false);
+      await harness.clickInstall();
+      assert.equal(harness.installHelp.hidden, false);
+      assert.match(harness.installHelp.textContent, platform.expected);
+    });
+  }
+});
+
+test('Install Now uses the native browser prompt when one is available', async () => {
+  const harness = createClientHarness(async () => true);
+  let prevented = false;
+  let prompted = false;
+  harness.dispatchWindow('beforeinstallprompt', {
+    preventDefault: () => { prevented = true; },
+    prompt: async () => { prompted = true; },
+    userChoice: Promise.resolve({ outcome: 'accepted' }),
+  });
+
+  await harness.clickInstall();
+
+  assert.equal(prevented, true);
+  assert.equal(prompted, true);
+  assert.equal(harness.installHelp.hidden, true);
+});
+
+test('install controls hide when GBAGL is already running standalone', () => {
+  const harness = createClientHarness(
+    async () => true,
+    { displayStandalone: true },
+  );
+  assert.equal(harness.installButton.hidden, true);
 });
 
 test('offline snapshot warning stays visible when browser connectivity returns', () => {

@@ -1,0 +1,31 @@
+<%- include('partials/head') %>
+<%- include('partials/nav') %>
+
+<main class="admin-page">
+  <div class="container admin-login">
+    <section class="card" aria-labelledby="account-login-title">
+      <p class="settings-kicker">Settings</p>
+      <h1 class="card__title" id="account-login-title">Sign in to make changes</h1>
+      <p class="admin-help">Passcode access is view-only. Gierael and Kim can sign in here to manage shared content.</p>
+      <% if (error) { %>
+        <div class="alert alert--error" role="alert"><%= error %></div>
+      <% } %>
+      <form action="/settings/login" method="post" class="admin-form">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+        <div class="form-group">
+          <label for="account-username" class="form-label">Username</label>
+          <input id="account-username" name="username" class="form-input"
+                 autocomplete="username" autocapitalize="none" spellcheck="false" required />
+        </div>
+        <div class="form-group">
+          <label for="account-password" class="form-label">Password</label>
+          <input id="account-password" name="password" type="password"
+                 class="form-input" autocomplete="current-password" required />
+        </div>
+        <button type="submit" class="btn btn--primary">Sign in</button>
+      </form>
+    </section>
+  </div>
+</main>
+
+<%- include('partials/footer') %>

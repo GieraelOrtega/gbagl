@@ -1,13 +1,13 @@
 <%- include('partials/head') %>
 <%- include('partials/nav') %>
 <main class="admin-page"><div class="container">
-  <%- include('partials/admin-header', {
+  <%- include('partials/settings-header', {
     heading: 'Manage Journal',
     subtitle: 'Entries can stand alone or appear beside a timeline milestone.'
   }) %>
   <section class="card admin-section">
     <h2 class="card__title">Add journal entry</h2>
-    <form action="/admin/journals" method="post" class="admin-form">
+    <form action="/settings/content/journals" method="post" class="admin-form">
       <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
       <%- include('partials/journal-fields', {
         entry: { title: '', body: '', entry_date: '', milestone_id: null },
@@ -19,12 +19,12 @@
   <section class="admin-stack">
     <% entries.forEach((entry) => { %>
       <article class="card">
-        <form action="/admin/journals/<%= entry.id %>" method="post" class="admin-form">
+        <form action="/settings/content/journals/<%= entry.id %>" method="post" class="admin-form">
           <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
           <%- include('partials/journal-fields', { entry, prefix: `journal-${entry.id}` }) %>
           <button class="btn btn--primary" type="submit">Update entry</button>
         </form>
-        <form action="/admin/journals/<%= entry.id %>/delete" method="post" class="admin-danger">
+        <form action="/settings/content/journals/<%= entry.id %>/delete" method="post" class="admin-danger">
           <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
           <button class="btn btn--outline" type="submit">Delete entry</button>
         </form>

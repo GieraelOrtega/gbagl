@@ -1,4 +1,5 @@
 const path = require('path');
+const net = require('net');
 
 const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
 const MAX_BACKUP_INTERVAL_HOURS = Math.floor(MAX_TIMER_DELAY_MS / (60 * 60 * 1000));
@@ -82,25 +83,83 @@ function assertProductionStrength(value, name) {
   }
 }
 
+function normalizedPublicOrigin(value, production) {
+  const configured = String(value || (production ? 'https://gba.gl' : '')).trim();
+  if (!configured) return null;
+  let parsed;
+  try {
+    parsed = new URL(configured);
+  } catch {
+    throw new Error('PUBLIC_ORIGIN must be a valid origin URL');
+  }
+  if (
+    !['http:', 'https:'].includes(parsed.protocol)
+    || parsed.username
+    || parsed.password
+    || parsed.pathname !== '/'
+    || parsed.search
+    || parsed.hash
+  ) {
+    throw new Error('PUBLIC_ORIGIN must contain only a scheme and host');
+  }
+  if (production && parsed.protocol !== 'https:') {
+    throw new Error('PUBLIC_ORIGIN must use HTTPS in production');
+  }
+  return parsed.origin;
+}
+
+function normalizedTrustProxy(value) {
+  const entries = String(value || 'loopback')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  if (
+    entries.length === 0
+    || entries.some((entry) => entry !== 'loopback' && net.isIP(entry) === 0)
+  ) {
+    throw new Error('TRUST_PROXY must list only loopback or exact proxy IP addresses');
+  }
+  return Object.freeze(entries);
+}
+
 function loadConfig(env = process.env) {
   const production = env.NODE_ENV === 'production';
   const sitePasscode = required(env, 'SITE_PASSCODE');
   const cookieSecret = required(env, 'COOKIE_SECRET', ['PASSCODE_COOKIE_SECRET']);
-  const adminPassword = required(env, 'ADMIN_PASSWORD', ['ADMIN_SECRET']);
+  const gieraelPassword = required(
+    env,
+    'GIERAEL_PASSWORD',
+    ['ADMIN_PASSWORD', 'ADMIN_SECRET'],
+  );
+  const kimPassword = required(env, 'KIM_PASSWORD');
 
   if (!/^\d{4}$/.test(sitePasscode)) {
     throw new Error('SITE_PASSCODE must be exactly four digits');
   }
   assertMinimum(cookieSecret, production ? 32 : 16, 'COOKIE_SECRET');
-  assertMinimum(adminPassword, production ? 12 : 8, 'ADMIN_PASSWORD');
+  assertMinimum(gieraelPassword, production ? 12 : 8, 'GIERAEL_PASSWORD');
+  assertMinimum(kimPassword, production ? 12 : 8, 'KIM_PASSWORD');
 
-  if (production && sitePasscode === adminPassword) {
-    throw new Error('SITE_PASSCODE and ADMIN_PASSWORD must be different');
+  if (
+    production
+    && [gieraelPassword, kimPassword].some((password) => password === sitePasscode)
+  ) {
+    throw new Error('SITE_PASSCODE and account passwords must be different');
+  }
+  if (production && gieraelPassword === kimPassword) {
+    throw new Error('GIERAEL_PASSWORD and KIM_PASSWORD must be different');
+  }
+  if (
+    production
+    && [sitePasscode, gieraelPassword, kimPassword].includes(cookieSecret)
+  ) {
+    throw new Error('COOKIE_SECRET must be different from all login credentials');
   }
   if (production) {
     assertProductionStrength(sitePasscode, 'SITE_PASSCODE');
     assertProductionStrength(cookieSecret, 'COOKIE_SECRET');
-    assertProductionStrength(adminPassword, 'ADMIN_PASSWORD');
+    assertProductionStrength(gieraelPassword, 'GIERAEL_PASSWORD');
+    assertProductionStrength(kimPassword, 'KIM_PASSWORD');
   }
 
   const root = __dirname;
@@ -147,10 +206,29 @@ function loadConfig(env = process.env) {
   return Object.freeze({
     production,
     port: positiveInteger(env.PORT, 3000, 'PORT'),
+    publicOrigin: normalizedPublicOrigin(env.PUBLIC_ORIGIN, production),
+    trustProxy: normalizedTrustProxy(env.TRUST_PROXY),
     sitePasscode,
     cookieSecret,
-    adminPassword,
-    adminCookieHours: positiveInteger(env.ADMIN_COOKIE_HOURS, 12, 'ADMIN_COOKIE_HOURS'),
+    accounts: Object.freeze([
+      Object.freeze({
+        username: 'gierael',
+        displayName: 'Gierael',
+        role: 'admin',
+        password: gieraelPassword,
+      }),
+      Object.freeze({
+        username: 'kim',
+        displayName: 'Kim',
+        role: 'member',
+        password: kimPassword,
+      }),
+    ]),
+    accountCookieHours: positiveInteger(
+      env.ACCOUNT_COOKIE_HOURS ?? env.ADMIN_COOKIE_HOURS,
+      12,
+      'ACCOUNT_COOKIE_HOURS',
+    ),
     backupDir,
     publicDir,
     backupRetention: positiveInteger(env.BACKUP_RETENTION, 7, 'BACKUP_RETENTION'),
@@ -169,5 +247,7 @@ module.exports = {
   loadConfig,
   pathsOverlap,
   pathContains,
+  normalizedPublicOrigin,
+  normalizedTrustProxy,
   positiveInteger,
 };

@@ -22,18 +22,18 @@ const { localInputValue } = require('../lib/presentation');
 const { positiveId } = require('../lib/validation');
 const { withMediaOperation } = require('../services/mediaCoordinator');
 
-function redirectAdmin(res, section, type, message) {
+function redirectSettings(res, section, type, message) {
   const query = new URLSearchParams({ [type]: message });
-  return res.redirect(303, `/admin/${section}?${query}`);
+  return res.redirect(303, `/settings/content/${section}?${query}`);
 }
 
 function requireDatabase(res, section) {
   if (isDbAvailable()) return false;
-  redirectAdmin(res, section, 'error', 'Database unavailable.');
+  redirectSettings(res, section, 'error', 'Database unavailable.');
   return true;
 }
 
-function createUploadIngress(config, adminAuth, passcodeAuth) {
+function createUploadIngress(config, accountAuth, passcodeAuth) {
   fs.mkdirSync(config.uploadDir, { recursive: true });
   const publicDir = path.resolve(__dirname, '..', 'public');
   if (
@@ -58,12 +58,12 @@ function createUploadIngress(config, adminAuth, passcodeAuth) {
 
   return [
     passcodeAuth.requirePasscode,
-    adminAuth.requireAdmin,
+    accountAuth.requireMember,
     (req, res, next) => {
       upload(req, res, (error) => {
         if (error) {
           console.error('Photo upload parsing failed:', error.message);
-          return redirectAdmin(
+          return redirectSettings(
             res,
             'albums',
             'error',
@@ -97,7 +97,7 @@ async function milestoneOptions() {
   return rows;
 }
 
-function createAdminHubRouter(config) {
+function createSettingsContentRouter(config) {
   const router = express.Router();
 
   router.get('/bucket', async (req, res) => {
@@ -115,9 +115,9 @@ function createAdminHubRouter(config) {
         dbError = 'Bucket items could not be loaded.';
       }
     } else dbError = 'The database is unavailable.';
-    return res.render('admin-bucket', {
+    return res.render('settings-bucket', {
       title: 'Manage Bucket List | GBAGL',
-      page: 'admin',
+      page: 'settings',
       items,
       dbError,
       message: req.query.message || null,
@@ -134,10 +134,10 @@ function createAdminHubRouter(config) {
          VALUES (?, ?, ?, ?)`,
         [item.title, item.description, item.category, item.targetDate],
       );
-      return redirectAdmin(res, 'bucket', 'message', 'Bucket item added.');
+      return redirectSettings(res, 'bucket', 'message', 'Bucket item added.');
     } catch (error) {
       console.error('Admin bucket create failed:', error.message);
-      return redirectAdmin(res, 'bucket', 'error', error.message);
+      return redirectSettings(res, 'bucket', 'error', error.message);
     }
   });
 
@@ -158,10 +158,10 @@ function createAdminHubRouter(config) {
         ],
       );
       if (result.affectedRows !== 1) throw new Error('Bucket item not found');
-      return redirectAdmin(res, 'bucket', 'message', 'Bucket item updated.');
+      return redirectSettings(res, 'bucket', 'message', 'Bucket item updated.');
     } catch (error) {
       console.error('Admin bucket update failed:', error.message);
-      return redirectAdmin(res, 'bucket', 'error', error.message);
+      return redirectSettings(res, 'bucket', 'error', error.message);
     }
   });
 
@@ -173,10 +173,10 @@ function createAdminHubRouter(config) {
         [positiveId(req.params.id)],
       );
       if (result.affectedRows !== 1) throw new Error('Bucket item not found');
-      return redirectAdmin(res, 'bucket', 'message', 'Bucket item deleted.');
+      return redirectSettings(res, 'bucket', 'message', 'Bucket item deleted.');
     } catch (error) {
       console.error('Admin bucket delete failed:', error.message);
-      return redirectAdmin(res, 'bucket', 'error', error.message);
+      return redirectSettings(res, 'bucket', 'error', error.message);
     }
   });
 
@@ -207,9 +207,9 @@ function createAdminHubRouter(config) {
         dbError = 'Events could not be loaded.';
       }
     } else dbError = 'The database is unavailable.';
-    return res.render('admin-events', {
+    return res.render('settings-events', {
       title: 'Manage Events | GBAGL',
-      page: 'admin',
+      page: 'settings',
       events,
       timeZone,
       dbError,
@@ -240,10 +240,10 @@ function createAdminHubRouter(config) {
          VALUES (?, ?, ?, ?, ?)`,
         [event.title, event.eventAt, event.reminderAt, event.notes || null, event.isCompleted],
       );
-      return redirectAdmin(res, 'events', 'message', 'Event added.');
+      return redirectSettings(res, 'events', 'message', 'Event added.');
     } catch (error) {
       console.error('Admin event create failed:', error.message);
-      return redirectAdmin(res, 'events', 'error', error.message);
+      return redirectSettings(res, 'events', 'error', error.message);
     }
   });
 
@@ -266,10 +266,10 @@ function createAdminHubRouter(config) {
         ],
       );
       if (result.affectedRows !== 1) throw new Error('Event not found');
-      return redirectAdmin(res, 'events', 'message', 'Event updated.');
+      return redirectSettings(res, 'events', 'message', 'Event updated.');
     } catch (error) {
       console.error('Admin event update failed:', error.message);
-      return redirectAdmin(res, 'events', 'error', error.message);
+      return redirectSettings(res, 'events', 'error', error.message);
     }
   });
 
@@ -281,10 +281,10 @@ function createAdminHubRouter(config) {
         [positiveId(req.params.id)],
       );
       if (result.affectedRows !== 1) throw new Error('Event not found');
-      return redirectAdmin(res, 'events', 'message', 'Event deleted.');
+      return redirectSettings(res, 'events', 'message', 'Event deleted.');
     } catch (error) {
       console.error('Admin event delete failed:', error.message);
-      return redirectAdmin(res, 'events', 'error', error.message);
+      return redirectSettings(res, 'events', 'error', error.message);
     }
   });
 
@@ -315,9 +315,9 @@ function createAdminHubRouter(config) {
         dbError = 'Albums could not be loaded.';
       }
     } else dbError = 'The database is unavailable.';
-    return res.render('admin-albums', {
+    return res.render('settings-albums', {
       title: 'Manage Albums | GBAGL',
-      page: 'admin',
+      page: 'settings',
       albums,
       photos,
       milestones,
@@ -336,10 +336,10 @@ function createAdminHubRouter(config) {
          VALUES (?, ?, ?, ?)`,
         [album.title, album.description, album.albumDate, album.displayOrder],
       );
-      return redirectAdmin(res, 'albums', 'message', 'Album added.');
+      return redirectSettings(res, 'albums', 'message', 'Album added.');
     } catch (error) {
       console.error('Admin album create failed:', error.message);
-      return redirectAdmin(res, 'albums', 'error', error.message);
+      return redirectSettings(res, 'albums', 'error', error.message);
     }
   });
 
@@ -360,10 +360,10 @@ function createAdminHubRouter(config) {
         ],
       );
       if (result.affectedRows !== 1) throw new Error('Album not found');
-      return redirectAdmin(res, 'albums', 'message', 'Album updated.');
+      return redirectSettings(res, 'albums', 'message', 'Album updated.');
     } catch (error) {
       console.error('Admin album update failed:', error.message);
-      return redirectAdmin(res, 'albums', 'error', error.message);
+      return redirectSettings(res, 'albums', 'error', error.message);
     }
   });
 
@@ -400,7 +400,7 @@ function createAdminHubRouter(config) {
           }
         }
         console.error('Admin album delete failed:', error.message);
-        return redirectAdmin(res, 'albums', 'error', error.message);
+        return redirectSettings(res, 'albums', 'error', error.message);
       } finally {
         if (connection) connection.release();
       }
@@ -408,12 +408,12 @@ function createAdminHubRouter(config) {
         uploads.map((photo) => removeUpload(config.uploadDir, photo.storage_name)),
       );
       const failed = cleanup.filter((resultItem) => resultItem.status === 'rejected');
-      if (!failed.length) return redirectAdmin(res, 'albums', 'message', 'Album deleted.');
+      if (!failed.length) return redirectSettings(res, 'albums', 'message', 'Album deleted.');
       failed.forEach((resultItem) => console.error(
         'Deleted album media cleanup failed:',
         resultItem.reason.message,
       ));
-      return redirectAdmin(
+      return redirectSettings(
         res,
         'albums',
         'error',
@@ -445,7 +445,7 @@ function createAdminHubRouter(config) {
           ],
         );
         if (result.affectedRows !== 1) throw new Error('Photo was not saved');
-        return redirectAdmin(res, 'albums', 'message', 'Photo uploaded.');
+        return redirectSettings(res, 'albums', 'message', 'Photo uploaded.');
       } catch (error) {
         if (stored) {
           await removeUpload(config.uploadDir, stored.storageName).catch((cleanupError) => {
@@ -457,7 +457,7 @@ function createAdminHubRouter(config) {
           });
         }
         console.error('Admin photo upload failed:', error.message);
-        return redirectAdmin(res, 'albums', 'error', error.message);
+        return redirectSettings(res, 'albums', 'error', error.message);
       }
     });
   });
@@ -486,10 +486,10 @@ function createAdminHubRouter(config) {
           mediaType,
         ],
       );
-      return redirectAdmin(res, 'albums', 'message', 'Existing photo linked.');
+      return redirectSettings(res, 'albums', 'message', 'Existing photo linked.');
     } catch (error) {
       console.error('Existing photo link failed:', error.message);
-      return redirectAdmin(res, 'albums', 'error', error.message);
+      return redirectSettings(res, 'albums', 'error', error.message);
     }
   });
 
@@ -513,10 +513,10 @@ function createAdminHubRouter(config) {
           ],
         );
         if (result.affectedRows !== 1) throw new Error('Photo not found');
-        return redirectAdmin(res, 'albums', 'message', 'Photo details updated.');
+        return redirectSettings(res, 'albums', 'message', 'Photo details updated.');
       } catch (error) {
         console.error('Admin photo update failed:', error.message);
-        return redirectAdmin(res, 'albums', 'error', error.message);
+        return redirectSettings(res, 'albums', 'error', error.message);
       }
     });
   });
@@ -537,7 +537,7 @@ function createAdminHubRouter(config) {
             await removeUpload(config.uploadDir, rows[0].storage_name);
           } catch (cleanupError) {
             console.error('Deleted photo media cleanup failed:', cleanupError.message);
-            return redirectAdmin(
+            return redirectSettings(
               res,
               'albums',
               'error',
@@ -545,10 +545,10 @@ function createAdminHubRouter(config) {
             );
           }
         }
-        return redirectAdmin(res, 'albums', 'message', 'Photo deleted.');
+        return redirectSettings(res, 'albums', 'message', 'Photo deleted.');
       } catch (error) {
         console.error('Admin photo delete failed:', error.message);
-        return redirectAdmin(res, 'albums', 'error', error.message);
+        return redirectSettings(res, 'albums', 'error', error.message);
       }
     });
   });
@@ -572,9 +572,9 @@ function createAdminHubRouter(config) {
         dbError = 'Journal entries could not be loaded.';
       }
     } else dbError = 'The database is unavailable.';
-    return res.render('admin-journals', {
+    return res.render('settings-journals', {
       title: 'Manage Journal | GBAGL',
-      page: 'admin',
+      page: 'settings',
       entries,
       milestones,
       dbError,
@@ -592,10 +592,10 @@ function createAdminHubRouter(config) {
          VALUES (?, ?, ?, ?)`,
         [entry.milestoneId, entry.title, entry.body, entry.entryDate],
       );
-      return redirectAdmin(res, 'journals', 'message', 'Journal entry added.');
+      return redirectSettings(res, 'journals', 'message', 'Journal entry added.');
     } catch (error) {
       console.error('Admin journal create failed:', error.message);
-      return redirectAdmin(res, 'journals', 'error', error.message);
+      return redirectSettings(res, 'journals', 'error', error.message);
     }
   });
 
@@ -616,10 +616,10 @@ function createAdminHubRouter(config) {
         ],
       );
       if (result.affectedRows !== 1) throw new Error('Journal entry not found');
-      return redirectAdmin(res, 'journals', 'message', 'Journal entry updated.');
+      return redirectSettings(res, 'journals', 'message', 'Journal entry updated.');
     } catch (error) {
       console.error('Admin journal update failed:', error.message);
-      return redirectAdmin(res, 'journals', 'error', error.message);
+      return redirectSettings(res, 'journals', 'error', error.message);
     }
   });
 
@@ -631,14 +631,14 @@ function createAdminHubRouter(config) {
         [positiveId(req.params.id)],
       );
       if (result.affectedRows !== 1) throw new Error('Journal entry not found');
-      return redirectAdmin(res, 'journals', 'message', 'Journal entry deleted.');
+      return redirectSettings(res, 'journals', 'message', 'Journal entry deleted.');
     } catch (error) {
       console.error('Admin journal delete failed:', error.message);
-      return redirectAdmin(res, 'journals', 'error', error.message);
+      return redirectSettings(res, 'journals', 'error', error.message);
     }
   });
 
   return router;
 }
 
-module.exports = { createAdminHubRouter, createUploadIngress };
+module.exports = { createSettingsContentRouter, createUploadIngress };

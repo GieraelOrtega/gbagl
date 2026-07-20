@@ -1,7 +1,8 @@
 <nav class="nav">
   <div class="nav__container">
     <a href="/" class="nav__logo">💕 GBAGL</a>
-    <button class="nav__toggle" id="navToggle" aria-label="Toggle navigation">
+    <button class="nav__toggle" id="navToggle" aria-label="Toggle navigation"
+            aria-controls="navLinks" aria-expanded="false">
       <span></span><span></span><span></span>
     </button>
     <ul class="nav__links" id="navLinks">
@@ -27,16 +28,9 @@
         <a href="/journal" class="nav__link<%= page === 'journal' ? ' nav__link--active' : '' %>">Journal</a>
       </li>
       <% if (!offlineSnapshot) { %><li>
-        <a href="<%= isAdmin ? '/admin' : '/admin/login' %>"
-           class="nav__link<%= page === 'admin' ? ' nav__link--active' : '' %>">Admin</a>
+        <a href="<%= currentUser ? '/settings' : '/settings/login' %>"
+           class="nav__link<%= page === 'settings' ? ' nav__link--active' : '' %>">Settings</a>
       </li><% } %>
-      <% if (!offlineSnapshot) { %><li>
-        <form action="/lock" method="post" class="nav__form">
-          <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-          <button type="submit" class="nav__button">Lock Now</button>
-        </form>
-      </li><% } %>
-      <li><button type="button" class="nav__button" data-install-app hidden>Install app</button></li>
       <li data-network-status-container<%= offlineSnapshot ? '' : ' hidden' %>>
         <span class="network-status network-status--offline" data-network-status<%= offlineSnapshot ? '' : ' hidden' %>><%= offlineSnapshot ? 'Offline · read-only copies' : '' %></span>
       </li>

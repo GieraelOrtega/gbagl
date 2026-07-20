@@ -2,51 +2,49 @@
 <%- include('partials/nav') %>
 
 <main>
-
-  <!-- ── Hero section ─────────────────────────────────────── -->
   <section class="hero">
-
     <div class="hero__text">
-      <p class="hero__eyebrow">💕 Welcome to</p>
+      <p class="hero__eyebrow"><%= settings.partner_one_name || 'Gierael' %> &amp; <%= settings.partner_two_name || 'Kim' %></p>
       <h1 class="hero__title">GBAGL</h1>
       <p class="hero__subtitle">Gunna Be a Great Life</p>
       <p class="hero__description">
-        A little corner of the internet just for us — our adventures,
-        our milestones, and all the beautiful days still ahead. 🌸
+        Our private place for the plans, milestones, memories, and little moments
+        that make life together ours.
       </p>
-      <a href="/adventure" class="btn btn--primary">Plan an Adventure ✨</a>
+      <div class="hero__actions">
+        <a href="/adventure" class="btn btn--primary">Plan an Adventure</a>
+        <a href="/timeline" class="btn btn--outline">See Our Story</a>
+      </div>
+      <% if (!currentUser && !offlineSnapshot) { %>
+        <p class="read-only-note">You are viewing GBAGL in read-only mode. Sign in from Settings to make changes.</p>
+      <% } %>
     </div>
 
-    <!-- Photo Collage -->
-    <!-- 📸 REPLACE: swap these placeholder images for real photos of you two!
-         Just drop your JPG/PNG files into /public/images/ and update the src
-         attributes below (e.g. src="/images/us-at-paris.jpg"). -->
-    <div class="collage" aria-label="Photo collage">
+    <div class="collage" aria-label="Our photo memories">
       <div class="collage__item collage__item--tall">
-        <img src="/images/photo-1.svg" alt="📸 Add your favourite photo here"
+        <img src="/images/photo-1.svg" alt="Favorite memory placeholder"
              class="collage__img" loading="lazy" />
       </div>
       <div class="collage__item">
-        <img src="/images/photo-2.svg" alt="📸 A favourite memory"
+        <img src="/images/photo-2.svg" alt="Shared memory placeholder"
              class="collage__img" loading="lazy" />
       </div>
       <div class="collage__item">
-        <img src="/images/photo-3.svg" alt="📸 An adventure together"
+        <img src="/images/photo-3.svg" alt="Adventure memory placeholder"
              class="collage__img" loading="lazy" />
       </div>
       <div class="collage__item">
-        <img src="/images/photo-4.svg" alt="📸 A cozy moment"
+        <img src="/images/photo-4.svg" alt="Cozy memory placeholder"
              class="collage__img" loading="lazy" />
       </div>
       <div class="collage__item">
-        <img src="/images/photo-5.svg" alt="📸 A happy day together"
+        <img src="/images/photo-5.svg" alt="Happy memory placeholder"
              class="collage__img" loading="lazy" />
       </div>
     </div>
-
   </section>
 
-  <section class="dashboard">
+  <section class="dashboard" aria-label="Relationship dashboard">
     <div class="container">
       <% if (dbError) { %><div class="alert alert--warning"><%= dbError %></div><% } %>
       <div class="dashboard__grid">
@@ -57,22 +55,23 @@
               <strong><%= countdown.days %> day<%= countdown.days === 1 ? '' : 's' %></strong>
               until the next anniversary
             </p>
-            <p><%= settings.partner_one_name || 'Partner One' %> &amp; <%= settings.partner_two_name || 'Partner Two' %></p>
+            <p><%= settings.partner_one_name || 'Gierael' %> &amp; <%= settings.partner_two_name || 'Kim' %></p>
+            <% if (anniversaryDisplay) { %><p class="dashboard-card__meta">Together since <%= anniversaryDisplay %></p><% } %>
           <% } else if (isAdmin) { %>
             <p>No anniversary date is configured yet.</p>
-            <a href="/admin#site-settings">Configure it in admin</a>
+            <a href="/settings#site-settings">Configure it in Settings</a>
           <% } else { %>
-            <p>The anniversary countdown has not been configured yet.</p>
+            <p>The anniversary countdown is temporarily unavailable.</p>
           <% } %>
         </article>
         <article class="card dashboard-card">
-          <h2 class="card__title">Bucket progress</h2>
+          <h2 class="card__title">Bucket List progress</h2>
           <% if (!dbError && bucketProgress.total > 0) { %>
             <p><strong><%= bucketProgress.completed %> of <%= bucketProgress.total %></strong> dreams completed.</p>
           <% } else if (!dbError) { %>
-            <p>Your shared bucket list is ready for its first dream.</p>
+            <p>Our shared Bucket List is ready for its first dream.</p>
           <% } %>
-          <a href="/bucket">Open bucket list</a>
+          <a href="/bucket">Open Bucket List</a>
         </article>
         <article class="card dashboard-card">
           <h2 class="card__title">Coming up</h2>
@@ -91,36 +90,50 @@
     </div>
   </section>
 
-  <!-- ── Features section ──────────────────────────────────── -->
   <section class="features">
     <div class="container">
-      <h2 class="section-title">What's inside 💖</h2>
+      <p class="section-eyebrow">Everything in one private place</p>
+      <h2 class="section-title">What's Inside</h2>
       <div class="features__grid">
-
-        <div class="feature-card">
-          <div class="feature-card__icon">🗺️</div>
+        <article class="feature-card">
+          <div class="feature-card__icon" aria-hidden="true">🗺️</div>
           <h3 class="feature-card__title">Adventure Planner</h3>
-          <p class="feature-card__text">
-            Pick a vibe, set a budget, and save date ideas so you never
-            run out of things to do together. Ideas sync across devices! 📱
-          </p>
-          <a href="/adventure" class="btn btn--outline">Let's Plan →</a>
-        </div>
-
-        <div class="feature-card">
-          <div class="feature-card__icon">📖</div>
+          <p class="feature-card__text">Save date ideas by mood, budget, and setting, then mark the favorites and memories worth repeating.</p>
+          <a href="/adventure" class="btn btn--outline">Plan Together</a>
+        </article>
+        <article class="feature-card">
+          <div class="feature-card__icon" aria-hidden="true">📖</div>
           <h3 class="feature-card__title">Our Timeline</h3>
-          <p class="feature-card__text">
-            Every milestone, every first, every memory — all in one place.
-            Our story, from the very beginning.
-          </p>
-          <a href="/timeline" class="btn btn--outline">See Our Story →</a>
-        </div>
-
+          <p class="feature-card__text">Keep the milestones, firsts, and chapters of our story together in chronological order.</p>
+          <a href="/timeline" class="btn btn--outline">See Our Story</a>
+        </article>
+        <article class="feature-card">
+          <div class="feature-card__icon" aria-hidden="true">✨</div>
+          <h3 class="feature-card__title">Bucket List</h3>
+          <p class="feature-card__text">Dream, vote, set dates, celebrate completed goals, and save the story behind each one.</p>
+          <a href="/bucket" class="btn btn--outline">View Our Dreams</a>
+        </article>
+        <article class="feature-card">
+          <div class="feature-card__icon" aria-hidden="true">📅</div>
+          <h3 class="feature-card__title">Events</h3>
+          <p class="feature-card__text">Keep plans and reminders organized, with calendar downloads for every device.</p>
+          <a href="/reminders" class="btn btn--outline">See What's Next</a>
+        </article>
+        <article class="feature-card">
+          <div class="feature-card__icon" aria-hidden="true">📷</div>
+          <h3 class="feature-card__title">Photo Albums</h3>
+          <p class="feature-card__text">Collect protected photos and captions without exposing private media through public links.</p>
+          <a href="/albums" class="btn btn--outline">Open Albums</a>
+        </article>
+        <article class="feature-card">
+          <div class="feature-card__icon" aria-hidden="true">💌</div>
+          <h3 class="feature-card__title">Shared Journal</h3>
+          <p class="feature-card__text">Write reflections and connect them directly to the timeline moments they belong beside.</p>
+          <a href="/journal" class="btn btn--outline">Read Our Journal</a>
+        </article>
       </div>
     </div>
   </section>
-
 </main>
 
 <%- include('partials/footer') %>

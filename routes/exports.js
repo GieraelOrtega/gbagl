@@ -7,7 +7,7 @@ function exportError(res, error) {
   res.set('Cache-Control', 'no-store');
   return res.status(unavailable ? 503 : 500).render('error', {
     title: 'Keepsake export unavailable | GBAGL',
-    page: 'admin',
+    page: 'settings',
     status: unavailable ? 503 : 500,
     message: unavailable
       ? 'The database is unavailable. Try the export again after it reconnects.'
@@ -26,16 +26,16 @@ function createExportRouter(exportService) {
       res.set('Cache-Control', 'no-store');
       return res.status(429).render('error', {
         title: 'Export rate limit | GBAGL',
-        page: 'admin',
+        page: 'settings',
         status: 429,
         message: 'Too many keepsake exports were requested. Please wait 15 minutes.',
       });
     },
   });
 
-  router.get('/', (req, res) => res.render('admin-exports', {
+  router.get('/', (req, res) => res.render('settings-exports', {
     title: 'Keepsake Exports | GBAGL',
-    page: 'admin',
+    page: 'settings',
   }));
 
   router.get('/keepsake.pdf', limiter, async (req, res) => {

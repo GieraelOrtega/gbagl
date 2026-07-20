@@ -1,13 +1,13 @@
 <%- include('partials/head') %>
 <%- include('partials/nav') %>
 <main class="admin-page"><div class="container">
-  <%- include('partials/admin-header', {
+  <%- include('partials/settings-header', {
     heading: 'Manage Bucket List',
-    subtitle: 'Admins create, edit, and delete shared dreams.'
+    subtitle: 'Add, edit, and organize shared dreams.'
   }) %>
   <section class="card admin-section">
     <h2 class="card__title">Add bucket item</h2>
-    <form action="/admin/bucket" method="post" class="admin-form">
+    <form action="/settings/content/bucket" method="post" class="admin-form">
       <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
       <%- include('partials/bucket-fields', {
         item: { title: '', description: '', category: 'other', target_date: '' },
@@ -19,12 +19,12 @@
   <section class="admin-stack">
     <% items.forEach((item) => { %>
       <article class="card">
-        <form action="/admin/bucket/<%= item.id %>" method="post" class="admin-form">
+        <form action="/settings/content/bucket/<%= item.id %>" method="post" class="admin-form">
           <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
           <%- include('partials/bucket-fields', { item, prefix: `bucket-${item.id}` }) %>
           <button class="btn btn--primary" type="submit">Update item</button>
         </form>
-        <form action="/admin/bucket/<%= item.id %>/delete" method="post" class="admin-danger">
+        <form action="/settings/content/bucket/<%= item.id %>/delete" method="post" class="admin-danger">
           <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
           <button class="btn btn--outline" type="submit">Delete item</button>
         </form>

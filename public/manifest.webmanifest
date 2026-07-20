@@ -2,6 +2,7 @@
   "name": "GBAGL — Gunna Be a Great Life",
   "short_name": "GBAGL",
   "description": "A private shared relationship keepsake.",
+  "id": "/",
   "theme_color": "#412b47",
   "background_color": "#fff8f9",
   "display": "standalone",

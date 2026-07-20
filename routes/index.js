@@ -5,12 +5,13 @@
 const express = require('express');
 const { getPool, isDbAvailable } = require('../db');
 const { nextAnniversary } = require('../lib/dates');
-const { formatDateTime } = require('../lib/presentation');
+const { formatDate, formatDateTime } = require('../lib/presentation');
 const router  = express.Router();
 
 router.get('/', async (req, res) => {
   let settings = {};
   let countdown = null;
+  let anniversaryDisplay = null;
   let upcomingEvents = [];
   let bucketProgress = { completed: 0, total: 0 };
   let dbError = null;
@@ -45,6 +46,9 @@ router.get('/', async (req, res) => {
         settings.anniversary_date,
         settings.timezone || 'UTC',
       );
+      anniversaryDisplay = settings.anniversary_date
+        ? formatDate(settings.anniversary_date)
+        : null;
       upcomingEvents = eventRows;
       bucketProgress = {
         completed: Number(bucketRows[0]?.completed || 0),
@@ -61,6 +65,7 @@ router.get('/', async (req, res) => {
     page:  'home',
     settings,
     countdown,
+    anniversaryDisplay,
     upcomingEvents,
     bucketProgress,
     formatDateTime,

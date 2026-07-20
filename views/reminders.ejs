@@ -8,6 +8,9 @@
     </header>
     <% if (dbError) { %><div class="alert alert--warning"><%= dbError %></div><% } %>
     <% if (error) { %><div class="alert alert--error"><%= error %></div><% } %>
+    <% if (!canEdit && !offlineSnapshot) { %>
+      <div class="read-only-note">View-only mode: sign in from Settings to manage or dismiss events.</div>
+    <% } %>
     <% if (!dbError && !offlineSnapshot) { %>
       <section class="card notification-panel">
         <h2 class="card__title">While-this-page-is-open reminders</h2>
@@ -25,7 +28,7 @@
             <p><strong><%= formatDateTime(event.event_at, timeZone) %></strong></p>
             <% if (event.notes) { %><p><%= event.notes %></p><% } %>
             <% if (!offlineSnapshot) { %><a class="btn btn--outline" href="/reminders/<%= event.id %>.ics">Add to calendar</a><% } %>
-            <% if (!offlineSnapshot && event.reminder_at && !event.reminder_dismissed) { %>
+            <% if (canEdit && event.reminder_at && !event.reminder_dismissed) { %>
               <form action="/reminders/<%= event.id %>/dismiss" method="post">
                 <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
                 <button class="btn btn--outline" type="submit">Dismiss browser reminder</button>

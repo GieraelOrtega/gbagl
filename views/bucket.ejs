@@ -9,6 +9,9 @@
     <% if (message) { %><div class="alert alert--success"><%= message %></div><% } %>
     <% if (error) { %><div class="alert alert--error"><%= error %></div><% } %>
     <% if (dbError) { %><div class="alert alert--warning"><%= dbError %></div><% } %>
+    <% if (!canEdit && !offlineSnapshot) { %>
+      <div class="read-only-note">View-only mode: sign in from Settings to vote or update the Bucket List.</div>
+    <% } %>
     <div class="hub-grid">
       <% items.forEach((item) => { %>
         <article class="card hub-card <%= item.completed_at ? 'hub-card--complete' : '' %>">
@@ -18,7 +21,7 @@
               <% if (item.is_favorite) { %><span aria-label="Favorite">★</span><% } %>
               <h2 class="card__title"><%= item.title %></h2>
             </div>
-            <% if (!offlineSnapshot) { %><form action="/bucket/<%= item.id %>/favorite" method="post">
+            <% if (canEdit) { %><form action="/bucket/<%= item.id %>/favorite" method="post">
               <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
               <button class="btn btn--outline" type="submit"><%= item.is_favorite ? 'Unfavorite' : 'Favorite' %></button>
             </form><% } %>
@@ -27,7 +30,7 @@
           <% if (item.target_date) { %><p><strong>Target:</strong> <%= item.target_date %></p><% } %>
           <div class="vote-grid">
             <% ['partner_one', 'partner_two'].forEach((slot) => { %>
-              <% if (!offlineSnapshot) { %><form action="/bucket/<%= item.id %>/vote" method="post" class="compact-form">
+              <% if (canEdit) { %><form action="/bucket/<%= item.id %>/vote" method="post" class="compact-form">
                 <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
                 <input type="hidden" name="voter_slot" value="<%= slot %>" />
                 <label class="form-label" for="vote-<%= item.id %>-<%= slot %>"><%= labels[slot] %></label>
@@ -43,7 +46,7 @@
               <% } %>
             <% }) %>
           </div>
-          <% if (!offlineSnapshot) { %><form action="/bucket/<%= item.id %>/completion" method="post" class="compact-form">
+          <% if (canEdit) { %><form action="/bucket/<%= item.id %>/completion" method="post" class="compact-form">
             <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
             <% if (item.completed_at) { %>
               <input type="hidden" name="completed" value="0" />
@@ -59,7 +62,7 @@
             <p><strong>Completed:</strong> <%= item.completed_at %></p>
           <% } %>
           <% if (item.completed_at) { %>
-            <% if (!offlineSnapshot) { %><form action="/bucket/<%= item.id %>/memory" method="post" class="compact-form">
+            <% if (canEdit) { %><form action="/bucket/<%= item.id %>/memory" method="post" class="compact-form">
               <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
               <label class="form-label" for="memory-<%= item.id %>">Memory or reflection</label>
               <textarea class="form-textarea" id="memory-<%= item.id %>" name="memory"
@@ -73,7 +76,7 @@
       <% }) %>
     </div>
     <% if (!dbError && items.length === 0) { %>
-      <div class="empty-state"><h2>No dreams yet</h2><p>An admin can add the first bucket-list item.</p></div>
+      <div class="empty-state"><h2>No dreams yet</h2><p>Gierael or Kim can add the first Bucket List item from Settings.</p></div>
     <% } %>
   </div>
 </main>

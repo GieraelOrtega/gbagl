@@ -15,13 +15,13 @@ const rateLimit = require('express-rate-limit');
 const path    = require('path');
 const { initDb } = require('./db');
 const { loadConfig } = require('./config');
-const { createAdminAuth } = require('./middleware/adminAuth');
+const { createAccountAuth } = require('./middleware/accountAuth');
 const { createCsrfProtection } = require('./middleware/csrf');
 const { createPasscodeAuth, safeDestination } = require('./middleware/passcode');
 const { createBackupService, scheduleBackups } = require('./services/backup');
 const { createKeepsakeExportService } = require('./services/keepsakeExport');
-const { createAdminRouter } = require('./routes/admin');
-const { createAdminHubRouter, createUploadIngress } = require('./routes/adminHub');
+const { createSettingsRouter } = require('./routes/settings');
+const { createUploadIngress } = require('./routes/settingsContent');
 const { createAlbumsRouter } = require('./routes/albums');
 const { createBucketRouter } = require('./routes/bucket');
 const { createJournalRouter } = require('./routes/journal');
@@ -34,9 +34,16 @@ const {
 
 function createApp(config = loadConfig(), services = {}) {
   const app = express();
-  app.set('trust proxy', 'loopback, linklocal, uniquelocal');
+  app.set('trust proxy', config.trustProxy || ['loopback']);
+  if (config.production) {
+    app.use((req, res, next) => {
+      if (req.secure) return next();
+      res.set('Cache-Control', 'no-store');
+      return res.redirect(308, `${config.publicOrigin}${req.originalUrl}`);
+    });
+  }
 
-  const adminAuth = createAdminAuth(config);
+  const accountAuth = createAccountAuth(config);
   const passcodeAuth = createPasscodeAuth(config);
   const backupService = services.backupService || createBackupService(config);
   const uploadConfig = {
@@ -53,6 +60,8 @@ function createApp(config = loadConfig(), services = {}) {
   app.use(express.urlencoded({ extended: true }));
   app.use(express.json());
   app.use((req, res, next) => {
+    res.locals.currentUser = null;
+    res.locals.canEdit = false;
     res.locals.isAdmin = false;
     res.locals.offlineSnapshot = false;
     res.set({
@@ -62,15 +71,25 @@ function createApp(config = loadConfig(), services = {}) {
         "font-src 'self'",
         "img-src 'self' data:",
         "script-src 'self'",
+        "connect-src 'self'",
+        "manifest-src 'self'",
+        "object-src 'none'",
+        "worker-src 'self'",
         "form-action 'self'",
         "frame-ancestors 'none'",
         "base-uri 'none'",
       ].join('; '),
       'Referrer-Policy': 'no-referrer',
+      'Permissions-Policy': 'camera=(), geolocation=(), microphone=(), payment=(), usb=()',
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Resource-Policy': 'same-origin',
       'X-Content-Type-Options': 'nosniff',
       'X-Frame-Options': 'DENY',
       'X-Robots-Tag': 'noindex, nofollow',
     });
+    if (config.production) {
+      res.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    }
     next();
   });
   const publicFile = (relativePath, headers = {}) => (req, res) => {
@@ -81,6 +100,7 @@ function createApp(config = loadConfig(), services = {}) {
   app.get('/js/lock.js', publicFile('js/lock.js'));
   app.get('/js/pwa.js', publicFile('js/pwa.js'));
   app.get('/js/pwaPolicy.js', publicFile('js/pwaPolicy.js'));
+  app.get('/js/theme.js', publicFile('js/theme.js'));
   app.get('/manifest.webmanifest', publicFile('manifest.webmanifest', {
     'Content-Type': 'application/manifest+json',
   }));
@@ -107,8 +127,8 @@ function createApp(config = loadConfig(), services = {}) {
     return csrfProtection.initialize(req, res, next);
   });
   app.use(
-    '/admin/albums/photos/upload',
-    createUploadIngress(uploadConfig, adminAuth, passcodeAuth),
+    '/settings/content/albums/photos/upload',
+    createUploadIngress(uploadConfig, accountAuth, passcodeAuth),
   );
   app.use(csrfProtection.verify);
 
@@ -146,7 +166,10 @@ function createApp(config = loadConfig(), services = {}) {
 
   app.use(passcodeAuth.requirePasscode);
   app.use((req, res, next) => {
-    res.locals.isAdmin = adminAuth.isAdmin(req);
+    const currentUser = accountAuth.currentUser(req);
+    res.locals.currentUser = currentUser;
+    res.locals.isAdmin = currentUser?.role === 'admin';
+    res.locals.canEdit = Boolean(currentUser) && !req.isOfflineSnapshot;
     if (
       req.isOfflineSnapshot
     ) {
@@ -161,7 +184,7 @@ function createApp(config = loadConfig(), services = {}) {
   });
   app.post('/lock', (req, res) => {
     passcodeAuth.clearUnlockCookie(res);
-    adminAuth.clearAdminCookie(res);
+    accountAuth.clearAccountCookie(res);
     res.set({
       'Clear-Site-Data': '"cache", "storage"',
       'X-GBAGL-Clear-Private-Data': '1',
@@ -169,19 +192,19 @@ function createApp(config = loadConfig(), services = {}) {
     return res.redirect(303, '/');
   });
   app.use(express.static(path.join(__dirname, 'public')));
-  app.use('/admin', createAdminRouter({
-    adminAuth,
+  app.use('/settings', createSettingsRouter({
+    accountAuth,
     backupService,
     config: uploadConfig,
     exportService,
   }));
   app.use('/', require('./routes/index'));
-  app.use('/adventure', require('./routes/adventure'));
-  app.use('/timeline', require('./routes/timeline'));
-  app.use('/bucket', createBucketRouter());
-  app.use('/reminders', createRemindersRouter());
-  app.use('/albums', createAlbumsRouter(uploadConfig));
-  app.use('/journal', createJournalRouter());
+  app.use('/adventure', accountAuth.requireMemberWrite, require('./routes/adventure'));
+  app.use('/timeline', accountAuth.requireMemberWrite, require('./routes/timeline'));
+  app.use('/bucket', accountAuth.requireMemberWrite, createBucketRouter());
+  app.use('/reminders', accountAuth.requireMemberWrite, createRemindersRouter());
+  app.use('/albums', accountAuth.requireMemberWrite, createAlbumsRouter(uploadConfig));
+  app.use('/journal', accountAuth.requireMemberWrite, createJournalRouter());
   app.use((req, res) => {
     res.status(404).render('404', {
       title: '404 — Page Not Found | GBAGL',

@@ -1,13 +1,13 @@
 <%- include('partials/head') %>
 <%- include('partials/nav') %>
 <main class="admin-page"><div class="container">
-  <%- include('partials/admin-header', {
+  <%- include('partials/settings-header', {
     heading: 'Manage Albums & Photos',
     subtitle: 'Uploads stay outside public static paths. Existing deployment images can be linked by /images/basename.'
   }) %>
   <section class="card admin-section">
     <h2 class="card__title">Add album</h2>
-    <form action="/admin/albums" method="post" class="admin-form">
+    <form action="/settings/content/albums" method="post" class="admin-form">
       <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
       <%- include('partials/album-fields', {
         album: { title: '', description: '', album_date: '', display_order: albums.length },
@@ -20,7 +20,7 @@
     <section class="admin-grid">
       <article class="card">
         <h2 class="card__title">Upload protected photo</h2>
-        <form action="/admin/albums/photos/upload" method="post" enctype="multipart/form-data" class="admin-form">
+        <form action="/settings/content/albums/photos/upload" method="post" enctype="multipart/form-data" class="admin-form">
           <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
           <div class="form-group">
             <label class="form-label" for="new-photo-file">JPEG, PNG, or WebP (maximum configured size)</label>
@@ -36,7 +36,7 @@
       </article>
       <article class="card">
         <h2 class="card__title">Link deployment-local image</h2>
-        <form action="/admin/albums/photos/existing" method="post" class="admin-form">
+        <form action="/settings/content/albums/photos/existing" method="post" class="admin-form">
           <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
           <div class="form-group">
             <label class="form-label" for="existing-image">Path under /images</label>
@@ -55,12 +55,12 @@
   <section class="admin-stack">
     <% albums.forEach((album) => { %>
       <article class="card">
-        <form action="/admin/albums/<%= album.id %>" method="post" class="admin-form">
+        <form action="/settings/content/albums/<%= album.id %>" method="post" class="admin-form">
           <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
           <%- include('partials/album-fields', { album, prefix: `album-${album.id}` }) %>
           <button class="btn btn--primary" type="submit">Update album</button>
         </form>
-        <form action="/admin/albums/<%= album.id %>/delete" method="post" class="admin-danger">
+        <form action="/settings/content/albums/<%= album.id %>/delete" method="post" class="admin-danger">
           <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
           <button class="btn btn--outline" type="submit">Delete album and photos</button>
         </form>
@@ -73,12 +73,12 @@
       <article class="card admin-photo-row">
         <img src="/albums/photos/<%= photo.id %>/content" alt="" loading="lazy" />
         <div>
-          <form action="/admin/albums/photos/<%= photo.id %>" method="post" class="admin-form">
+          <form action="/settings/content/albums/photos/<%= photo.id %>" method="post" class="admin-form">
             <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
             <%- include('partials/photo-fields', { photo, prefix: `photo-${photo.id}` }) %>
             <button class="btn btn--primary" type="submit">Update photo</button>
           </form>
-          <form action="/admin/albums/photos/<%= photo.id %>/delete" method="post" class="admin-danger">
+          <form action="/settings/content/albums/photos/<%= photo.id %>/delete" method="post" class="admin-danger">
             <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
             <button class="btn btn--outline" type="submit">Delete photo</button>
           </form>

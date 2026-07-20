@@ -1,13 +1,13 @@
 <%- include('partials/head') %>
 <%- include('partials/nav') %>
 <main class="admin-page"><div class="container">
-  <%- include('partials/admin-header', {
+  <%- include('partials/settings-header', {
     heading: 'Manage Events',
     subtitle: `Enter times in ${timeZone}. Stored reminder times are ready for a later service worker.`
   }) %>
   <section class="card admin-section">
     <h2 class="card__title">Add event</h2>
-    <form action="/admin/events" method="post" class="admin-form">
+    <form action="/settings/content/events" method="post" class="admin-form">
       <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
       <%- include('partials/event-fields', {
         event: { title: '', event_input: '', reminder_input: '', notes: '', is_completed: false },
@@ -19,12 +19,12 @@
   <section class="admin-stack">
     <% events.forEach((event) => { %>
       <article class="card">
-        <form action="/admin/events/<%= event.id %>" method="post" class="admin-form">
+        <form action="/settings/content/events/<%= event.id %>" method="post" class="admin-form">
           <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
           <%- include('partials/event-fields', { event, prefix: `event-${event.id}` }) %>
           <button class="btn btn--primary" type="submit">Update event</button>
         </form>
-        <form action="/admin/events/<%= event.id %>/delete" method="post" class="admin-danger">
+        <form action="/settings/content/events/<%= event.id %>/delete" method="post" class="admin-danger">
           <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
           <button class="btn btn--outline" type="submit">Delete event</button>
         </form>

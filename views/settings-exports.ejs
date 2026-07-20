@@ -2,7 +2,7 @@
 <%- include('partials/nav') %>
 <main class="admin-page">
   <div class="container prose-container">
-    <%- include('partials/admin-header', {
+    <%- include('partials/settings-header', {
       heading: 'Keepsake Exports',
       subtitle: 'Download a sensitive, portable copy of your shared story.',
       message: null,
@@ -15,12 +15,12 @@
     <section class="card admin-section">
       <h2 class="card__title">PDF keepsake</h2>
       <p class="admin-help">A polished, paginated keepsake with settings, timeline, journal, completed bucket memories, events, album captions, and supported JPEG/PNG photos. WebP references remain listed and are included in the ZIP.</p>
-      <a class="btn btn--primary" href="/admin/exports/keepsake.pdf">Download PDF</a>
+      <a class="btn btn--primary" href="/settings/exports/keepsake.pdf">Download PDF</a>
     </section>
     <section class="card admin-section">
       <h2 class="card__title">Portable ZIP keepsake</h2>
       <p class="admin-help">A self-contained printable HTML keepsake, deterministic JSON data, a manifest, and available album media under safe archive paths.</p>
-      <a class="btn btn--primary" href="/admin/exports/keepsake.zip">Download ZIP</a>
+      <a class="btn btn--primary" href="/settings/exports/keepsake.zip">Download ZIP</a>
     </section>
   </div>
 </main>

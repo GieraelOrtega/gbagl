@@ -7,18 +7,18 @@ const {
   validateMilestone,
   validateSettings,
 } = require('../lib/validation');
-const { createAdminHubRouter } = require('./adminHub');
+const { createSettingsContentRouter } = require('./settingsContent');
 const { createExportRouter } = require('./exports');
 
 const VALID_STATUSES = ['pending', 'done', 'favorite'];
 
 function redirectMessage(res, type, message) {
   const params = new URLSearchParams({ [type]: message });
-  return res.redirect(303, `/admin?${params}`);
+  return res.redirect(303, `/settings?${params}`);
 }
 
-function createAdminRouter({
-  adminAuth,
+function createSettingsRouter({
+  accountAuth,
   backupService,
   config,
   exportService,
@@ -30,43 +30,48 @@ function createAdminRouter({
     skipSuccessfulRequests: true,
     standardHeaders: 'draft-8',
     legacyHeaders: false,
-    handler: (req, res) => res.status(429).render('admin-login', {
-      title: 'Admin Login | GBAGL',
-      page: 'admin',
+    handler: (req, res) => res.status(429).render('settings-login', {
+      title: 'Account sign in | GBAGL',
+      page: 'settings',
       error: 'Unable to sign in. Wait a few minutes and try again.',
     }),
   });
 
   router.get('/login', (req, res) => {
-    if (adminAuth.isAdmin(req)) return res.redirect(303, '/admin');
-    return res.render('admin-login', {
-      title: 'Admin Login | GBAGL',
-      page: 'admin',
+    if (accountAuth.isMember(req)) return res.redirect(303, '/settings');
+    return res.render('settings-login', {
+      title: 'Account sign in | GBAGL',
+      page: 'settings',
       error: null,
     });
   });
 
   router.post('/login', loginLimiter, (req, res) => {
-    if (!adminAuth.isValidPassword(req.body.password)) {
-      return res.status(401).render('admin-login', {
-        title: 'Admin Login | GBAGL',
-        page: 'admin',
+    const user = accountAuth.authenticate(req.body.username, req.body.password);
+    if (!user) {
+      return res.status(401).render('settings-login', {
+        title: 'Account sign in | GBAGL',
+        page: 'settings',
         error: 'Unable to sign in with those credentials.',
       });
     }
-    adminAuth.setAdminCookie(res);
-    return res.redirect(303, '/admin');
+    accountAuth.setAccountCookie(res, user);
+    return res.redirect(303, '/settings');
   });
 
-  router.use(adminAuth.requireAdmin);
+  router.use(accountAuth.requireAccount);
 
   router.post('/logout', (req, res) => {
-    adminAuth.clearAdminCookie(res);
-    return res.redirect(303, '/admin/login');
+    accountAuth.clearAccountCookie(res);
+    return res.redirect(303, '/');
   });
 
-  router.use('/exports', createExportRouter(exportService));
-  router.use(createAdminHubRouter(config));
+  router.use(
+    '/exports',
+    accountAuth.requireAdmin,
+    createExportRouter(exportService),
+  );
+  router.use('/content', createSettingsContentRouter(config));
 
   router.get('/', async (req, res) => {
     let settings = {};
@@ -91,21 +96,23 @@ function createAdminRouter({
         milestones = milestoneRows;
         ideas = ideaRows;
       } catch (error) {
-        console.error('Admin database load failed:', error.message);
+        console.error('Settings database load failed:', error.message);
         dbError = 'Database records could not be loaded.';
       }
     } else {
       dbError = 'The database is unavailable.';
     }
-    try {
-      backups = await backupService.list();
-    } catch (error) {
-      console.error('Backup list failed:', error.message);
+    if (accountAuth.isAdmin(req)) {
+      try {
+        backups = await backupService.list();
+      } catch (error) {
+        console.error('Backup list failed:', error.message);
+      }
     }
 
-    return res.render('admin', {
-      title: 'Admin Dashboard | GBAGL',
-      page: 'admin',
+    return res.render('settings', {
+      title: 'Settings | GBAGL',
+      page: 'settings',
       backups,
       dbError,
       ideas,
@@ -116,7 +123,7 @@ function createAdminRouter({
     });
   });
 
-  router.post('/settings', async (req, res) => {
+  router.post('/site', accountAuth.requireAdmin, async (req, res) => {
     if (!isDbAvailable()) return redirectMessage(res, 'error', 'Database unavailable.');
     try {
       const settings = validateSettings(req.body);
@@ -125,9 +132,9 @@ function createAdminRouter({
          ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)`,
         [Object.entries(settings)],
       );
-      return redirectMessage(res, 'message', 'Settings saved.');
+      return redirectMessage(res, 'message', 'Site settings saved.');
     } catch (error) {
-      console.error('Settings update failed:', error.message);
+      console.error('Site settings update failed:', error.message);
       return redirectMessage(res, 'error', error.message);
     }
   });
@@ -200,6 +207,7 @@ function createAdminRouter({
   });
 
   router.post('/ideas/:id/status', async (req, res) => {
+    if (!isDbAvailable()) return redirectMessage(res, 'error', 'Database unavailable.');
     try {
       const id = positiveId(req.params.id);
       if (!VALID_STATUSES.includes(req.body.status)) throw new Error('Invalid idea status');
@@ -209,24 +217,25 @@ function createAdminRouter({
       ]);
       return redirectMessage(res, 'message', 'Date idea updated.');
     } catch (error) {
-      console.error('Admin idea update failed:', error.message);
+      console.error('Settings idea update failed:', error.message);
       return redirectMessage(res, 'error', error.message);
     }
   });
 
   router.post('/ideas/:id/delete', async (req, res) => {
+    if (!isDbAvailable()) return redirectMessage(res, 'error', 'Database unavailable.');
     try {
       await getPool().execute('DELETE FROM date_ideas WHERE id = ?', [
         positiveId(req.params.id),
       ]);
       return redirectMessage(res, 'message', 'Date idea deleted.');
     } catch (error) {
-      console.error('Admin idea delete failed:', error.message);
+      console.error('Settings idea delete failed:', error.message);
       return redirectMessage(res, 'error', error.message);
     }
   });
 
-  router.post('/backups', async (req, res) => {
+  router.post('/backups', accountAuth.requireAdmin, async (req, res) => {
     try {
       await backupService.create();
       return redirectMessage(res, 'message', 'Backup created.');
@@ -236,7 +245,7 @@ function createAdminRouter({
     }
   });
 
-  router.get('/backups/:filename', async (req, res) => {
+  router.get('/backups/:filename', accountAuth.requireAdmin, async (req, res) => {
     try {
       const backupPath = backupService.downloadPath(req.params.filename);
       await fs.promises.access(backupPath, fs.constants.R_OK);
@@ -244,8 +253,8 @@ function createAdminRouter({
     } catch (error) {
       console.error('Backup download rejected:', error.message);
       return res.status(404).render('error', {
-        title: 'Backup Not Found | GBAGL',
-        page: 'admin',
+        title: 'Backup not found | GBAGL',
+        page: 'settings',
         status: 404,
         message: 'That backup does not exist.',
       });
@@ -255,4 +264,4 @@ function createAdminRouter({
   return router;
 }
 
-module.exports = { createAdminRouter };
+module.exports = { createSettingsRouter };

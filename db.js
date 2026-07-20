@@ -11,6 +11,7 @@ const mysql = require('mysql2/promise');
 let pool = null;
 let dbAvailable = false;
 const TIMELINE_IMPORT_MARKER = 'timeline_import_complete';
+const RELATIONSHIP_BASICS_MARKER = 'relationship_basics_2025_12_08_v1';
 
 function selectEnvValue(env, scopedKey, genericKey) {
   return env[scopedKey] !== undefined ? env[scopedKey] : env[genericKey];
@@ -181,17 +182,19 @@ async function initDb() {
     await pool.execute(`
       INSERT IGNORE INTO site_settings (setting_key, setting_value)
       VALUES
-        ('partner_one_name', 'Partner One'),
-        ('partner_two_name', 'Partner Two'),
-        ('anniversary_date', ''),
+        ('partner_one_name', 'Gierael'),
+        ('partner_two_name', 'Kim'),
+        ('anniversary_date', '2025-12-08'),
         ('timezone', 'UTC')
     `);
     dbAvailable = true;
     try {
       await importTimelineOnce();
+      await seedRelationshipBasics();
     } catch (error) {
       console.error('Timeline import failed; file fallback remains available:', error.message);
     }
+
     console.log('✅  Database connected and tables ready!');
   } catch (err) {
     console.warn('⚠️   Database not available:', err.message);
@@ -200,6 +203,65 @@ async function initDb() {
     dbAvailable = false;
   }
 
+}
+
+async function seedRelationshipBasics(databasePool = pool) {
+  const connection = await databasePool.getConnection();
+  try {
+    await connection.beginTransaction();
+    await connection.execute(
+      `INSERT IGNORE INTO site_settings (setting_key, setting_value)
+       VALUES (?, 'pending')`,
+      [RELATIONSHIP_BASICS_MARKER],
+    );
+    const [markerRows] = await connection.execute(
+      `SELECT setting_value FROM site_settings
+       WHERE setting_key = ? FOR UPDATE`,
+      [RELATIONSHIP_BASICS_MARKER],
+    );
+    if (markerRows[0]?.setting_value === 'complete') {
+      await connection.commit();
+      return false;
+    }
+    await connection.execute(`
+      UPDATE site_settings
+      SET setting_value = CASE setting_key
+        WHEN 'partner_one_name' THEN 'Gierael'
+        WHEN 'partner_two_name' THEN 'Kim'
+        WHEN 'anniversary_date' THEN '2025-12-08'
+        ELSE setting_value
+      END
+      WHERE (setting_key = 'partner_one_name' AND setting_value = 'Partner One')
+         OR (setting_key = 'partner_two_name' AND setting_value = 'Partner Two')
+         OR (setting_key = 'anniversary_date' AND setting_value = '')
+    `);
+    await connection.execute(
+      `UPDATE timeline_milestones
+       SET milestone_date = ?, title = ?, description = ?, emoji = ?
+       WHERE milestone_date = 'Coming Soon'
+         AND title = 'The Day We Met'
+         AND description = 'Every love story has a first chapter. Ours started right here. ✨'
+         AND emoji = '✨'`,
+      [
+        'December 8, 2025',
+        'Officially Us',
+        'The day we officially became boyfriend and girlfriend — the start of our great life together. 💕',
+        '💕',
+      ],
+    );
+    await connection.execute(
+      `UPDATE site_settings SET setting_value = 'complete'
+       WHERE setting_key = ?`,
+      [RELATIONSHIP_BASICS_MARKER],
+    );
+    await connection.commit();
+    return true;
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 }
 
 async function importTimelineOnce(
@@ -274,10 +336,12 @@ function isDbAvailable() {
 }
 
 module.exports = {
+  RELATIONSHIP_BASICS_MARKER,
   TIMELINE_IMPORT_MARKER,
   buildPoolOptions,
   getPool,
   importTimelineOnce,
   initDb,
   isDbAvailable,
+  seedRelationshipBasics,
 };
