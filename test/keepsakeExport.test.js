@@ -2,12 +2,14 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
+const { PNG } = require('pngjs');
 const {
   buildPdf,
   buildPrintableHtml,
   buildZip,
   loadKeepsakeData,
   mediaArchiveName,
+  preparePdfMedia,
   safeArchiveName,
   safePdfImage,
 } = require('../services/keepsakeExport');
@@ -126,13 +128,14 @@ test('PDF output has a valid signature and relationship keepsake metadata', asyn
   assert.match(text, /GBAGL Relationship Keepsake/);
   assert.match(text, /Timeline, journal, memories, events, and albums/);
   assert.match(text, /\/Type \/Page/);
+  assert.equal((text.match(/\/Type \/Page\b/g) || []).length, 1);
 });
 
-test('PDF image preparation fully decodes PNGs and rejects malformed image data', () => {
+test('PDF image preparation fully decodes PNGs and rejects malformed image data', async () => {
   const valid = fs.readFileSync(
     path.join(__dirname, '..', 'public', 'icons', 'icon-192.png'),
   );
-  const normalized = safePdfImage(valid, 'image/png');
+  const normalized = await safePdfImage(valid, 'image/png');
   assert.deepEqual([...normalized.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
 
   const malformed = Buffer.alloc(33);
@@ -141,7 +144,39 @@ test('PDF image preparation fully decodes PNGs and rejects malformed image data'
   malformed.write('IHDR', 12, 'ascii');
   malformed.writeUInt32BE(1, 16);
   malformed.writeUInt32BE(1, 20);
-  assert.throws(() => safePdfImage(malformed, 'image/png'));
+  await assert.rejects(safePdfImage(malformed, 'image/png'));
+});
+
+test('PDF media preparation enforces aggregate pixel and image budgets', async () => {
+  const compressed = PNG.sync.write({
+    data: Buffer.alloc(16 * 16 * 4, 0xff),
+    height: 16,
+    width: 16,
+  });
+  const media = [1, 2, 3].map((id) => ({
+    archivePath: `media/albums/000005/photo-${String(id).padStart(6, '0')}.png`,
+    buffer: compressed,
+    kind: 'album',
+    mediaType: 'image/png',
+    record: { album_id: 5, id, media_type: 'image/png' },
+    status: 'included',
+  }));
+
+  const pixelLimited = await preparePdfMedia(media, {
+    maxImages: 3,
+    maxTotalPixels: 300,
+  });
+  assert.equal(pixelLimited[0].pdfStatus, 'included');
+  assert.equal(pixelLimited[1].pdfStatus, 'skipped-total-pixel-budget');
+  assert.equal(pixelLimited[2].pdfStatus, 'skipped-total-pixel-budget');
+
+  const countLimited = await preparePdfMedia(media, {
+    maxImages: 1,
+    maxTotalPixels: 1024,
+  });
+  assert.equal(countLimited[0].pdfStatus, 'included');
+  assert.equal(countLimited[1].pdfStatus, 'skipped-image-count-budget');
+  assert.equal(countLimited[2].pdfStatus, 'skipped-image-count-budget');
 });
 
 test('export data uses one repeatable-read transaction and always releases it', async () => {

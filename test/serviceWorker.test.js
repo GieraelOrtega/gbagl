@@ -28,15 +28,20 @@ function response(body, {
   return new Response(body, { headers, status });
 }
 
-function createWorkerHarness() {
-  const cacheData = new Map([['gbagl-public-v1', new Map([
-    ['/offline.html', response('safe offline shell', { status: 503 })],
-  ])]]);
+function createWorkerHarness(options = {}) {
+  const cacheData = options.cacheData || new Map();
+  if (!cacheData.has('gbagl-public-v1')) {
+    cacheData.set('gbagl-public-v1', new Map([
+      ['/offline.html', response('safe offline shell', { status: 503 })],
+    ]));
+  }
   const state = {
+    clientsImpl: async () => [],
     deleteImpl: async (name) => cacheData.delete(name),
     fetchImpl: async () => { throw new Error('offline'); },
     getNotificationsImpl: async () => [],
     privateMatchCalls: 0,
+    stateReadError: options.stateReadError || false,
     putImpl: async (entries, key, value) => {
       entries.set(key, value.clone());
     },
@@ -64,6 +69,18 @@ function createWorkerHarness() {
       const entries = cacheData.get(name);
       return {
         async addAll() {},
+        async keys() {
+          if (name === 'gbagl-state-v1' && state.stateReadError) {
+            throw new Error('state read failure');
+          }
+          return [...entries.keys()].map((key) => new Request(key));
+        },
+        async match(request) {
+          if (name === 'gbagl-state-v1' && state.stateReadError) {
+            throw new Error('state read failure');
+          }
+          return entries.get(cacheKey(request))?.clone();
+        },
         async put(request, value) {
           await state.putImpl(entries, cacheKey(request), value);
         },
@@ -80,10 +97,10 @@ function createWorkerHarness() {
     },
     clients: {
       claim: async () => {},
-      matchAll: async () => [],
+      matchAll: (...args) => state.clientsImpl(...args),
     },
     location: { origin: 'https://gba.gl' },
-    crypto: { randomUUID: () => 'worker-test' },
+    crypto: { randomUUID: () => options.instance || 'worker-test' },
     registration: {
       getNotifications: (...args) => state.getNotificationsImpl(...args),
     },
@@ -117,6 +134,8 @@ function createWorkerHarness() {
       navigationResponse,
       protectedMediaResponse,
       revokePrivateData,
+      maintenance: () => privateMaintenance,
+      ready: privateStateReady,
       state: () => ({
         accessAllowed: privateAccessAllowed,
         cacheName: activePrivateCache,
@@ -231,8 +250,8 @@ test('Lock Now revokes synchronously while its purge and response are pending', 
   }));
   const locked = await lock;
   assert.equal(locked.status, 303);
-  await Promise.all(cleanup);
   assert.equal(harness.hooks.state().lockRequestsPending, 0);
+  await Promise.all(cleanup);
   assert.equal(harness.hooks.state().accessAllowed, false);
 });
 
@@ -384,4 +403,258 @@ test('notifications close independently when private cache deletion rejects', as
 
   assert.equal(harness.hooks.state().accessAllowed, false);
   assert.equal(closed, 2);
+});
+
+test('auth loss returns immediately and backgrounds independent revocation cleanup', async () => {
+  const harness = createWorkerHarness();
+  await authorize(harness);
+  const deletion = deferred();
+  const lifetimes = [];
+  const messages = [];
+  let closed = 0;
+  harness.state.deleteImpl = async () => deletion.promise;
+  harness.state.getNotificationsImpl = async () => [
+    { close: () => { closed += 1; } },
+  ];
+  harness.state.clientsImpl = async () => [{
+    postMessage: (message) => messages.push(message),
+  }];
+  harness.state.fetchImpl = async () => response('locked', { status: 401 });
+
+  const authResponse = await harness.hooks.navigationResponse(
+    new Request('https://gba.gl/'),
+    (promise) => lifetimes.push(promise),
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(authResponse.status, 401);
+  assert.equal(harness.hooks.state().accessAllowed, false);
+  assert.equal(closed, 1);
+  assert.equal(messages[0].type, 'AUTHORIZATION_LOST');
+  assert.equal(lifetimes.length, 1);
+  let cleanupSettled = false;
+  void lifetimes[0].then(() => { cleanupSettled = true; });
+  await Promise.resolve();
+  assert.equal(cleanupSettled, false);
+  const revokedRecord = [...harness.cacheData.get('gbagl-state-v1').entries()]
+    .find(([key]) => key.endsWith('-revoked'));
+  const stored = await revokedRecord[1].clone().json();
+  assert.equal(stored.authorized, false);
+
+  deletion.resolve(true);
+  await Promise.all(lifetimes);
+});
+
+test('Lock Now response is not delayed by pending cache deletion', async () => {
+  const harness = createWorkerHarness();
+  await authorize(harness);
+  const deletion = deferred();
+  const lifetimes = [];
+  harness.state.deleteImpl = async () => deletion.promise;
+  harness.state.fetchImpl = async () => new Response(null, {
+    headers: { Location: '/' },
+    status: 303,
+  });
+  const lockUrl = new URL('https://gba.gl/lock');
+
+  const locked = await harness.hooks.mutationResponse(
+    new Request(lockUrl, { method: 'POST' }),
+    lockUrl,
+    (promise) => lifetimes.push(promise),
+  );
+
+  assert.equal(locked.status, 303);
+  assert.equal(harness.hooks.state().accessAllowed, false);
+  assert.equal(harness.hooks.state().lockRequestsPending, 0);
+  assert.ok(lifetimes.length >= 2);
+  deletion.resolve(true);
+  await Promise.all(lifetimes);
+});
+
+test('worker restart restores the current authorized offline generation', async () => {
+  const first = createWorkerHarness({ instance: 'worker-one' });
+  await authorize(first, 'persisted snapshot');
+  const cacheName = first.hooks.state().cacheName;
+
+  const restarted = createWorkerHarness({
+    cacheData: first.cacheData,
+    instance: 'worker-two',
+  });
+  await restarted.hooks.ready;
+  const offline = await offlineNavigation(restarted);
+
+  assert.equal(restarted.hooks.state().accessAllowed, true);
+  assert.equal(restarted.hooks.state().cacheName, cacheName);
+  assert.equal(await offline.text(), 'persisted snapshot');
+});
+
+test('persisted revocation prevents worker restart from recovering residue', async () => {
+  const first = createWorkerHarness({ instance: 'worker-one' });
+  await authorize(first, 'private residue');
+  const residueName = first.hooks.state().cacheName;
+  first.state.deleteImpl = async () => { throw new Error('disk failure'); };
+  await first.hooks.revokePrivateData();
+  assert.equal(first.cacheData.has(residueName), true);
+
+  const restarted = createWorkerHarness({
+    cacheData: first.cacheData,
+    instance: 'worker-two',
+  });
+  await restarted.hooks.ready;
+  const offline = await offlineNavigation(restarted);
+
+  assert.equal(restarted.hooks.state().accessAllowed, false);
+  assert.equal(await offline.text(), 'safe offline shell');
+});
+
+test('worker restart purges old-version and orphaned private caches', async () => {
+  const first = createWorkerHarness({ instance: 'worker-one' });
+  await authorize(first, 'current snapshot');
+  const active = first.hooks.state().cacheName;
+  first.cacheData.set('gbagl-private-v0-old-1', new Map());
+  first.cacheData.set('gbagl-private-v1-orphan-9', new Map());
+
+  const restarted = createWorkerHarness({
+    cacheData: first.cacheData,
+    instance: 'worker-two',
+  });
+  await restarted.hooks.ready;
+  await restarted.hooks.maintenance();
+
+  assert.equal(restarted.cacheData.has(active), true);
+  assert.equal(restarted.cacheData.has('gbagl-private-v0-old-1'), false);
+  assert.equal(restarted.cacheData.has('gbagl-private-v1-orphan-9'), false);
+});
+
+test('authorization state write failure keeps private access revoked', async () => {
+  const harness = createWorkerHarness();
+  harness.state.putImpl = async (entries, key, value) => {
+    if (key.includes('__gbagl-private-state__')) throw new Error('state write failure');
+    entries.set(key, value.clone());
+  };
+  harness.state.fetchImpl = async () => response('private snapshot', {
+    cacheOptIn: policy.SNAPSHOT_OPT_IN,
+  });
+
+  await harness.hooks.authorizePrivateCache('https://gba.gl/');
+  const offline = await offlineNavigation(harness);
+
+  assert.equal(harness.hooks.state().accessAllowed, false);
+  assert.equal(await offline.text(), 'safe offline shell');
+});
+
+test('authorization state read failure fails closed after worker restart', async () => {
+  const first = createWorkerHarness({ instance: 'worker-one' });
+  await authorize(first, 'private snapshot');
+  const restarted = createWorkerHarness({
+    cacheData: first.cacheData,
+    instance: 'worker-two',
+    stateReadError: true,
+  });
+
+  await restarted.hooks.ready;
+  const offline = await offlineNavigation(restarted);
+
+  assert.equal(restarted.hooks.state().accessAllowed, false);
+  assert.equal(await offline.text(), 'safe offline shell');
+});
+
+test('stale authorized state write cannot overwrite a newer durable revocation', async () => {
+  const first = createWorkerHarness({ instance: 'worker-one' });
+  const authorizationWriteStarted = deferred();
+  const finishAuthorizationWrite = deferred();
+  first.state.deleteImpl = async () => { throw new Error('disk failure'); };
+  first.state.putImpl = async (entries, key, value) => {
+    entries.set(key, value.clone());
+    if (key.endsWith('-authorized')) {
+      authorizationWriteStarted.resolve();
+      await finishAuthorizationWrite.promise;
+    }
+  };
+  first.state.fetchImpl = async () => response('stale snapshot', {
+    cacheOptIn: policy.SNAPSHOT_OPT_IN,
+  });
+  const authorization = first.hooks.authorizePrivateCache('https://gba.gl/');
+  await authorizationWriteStarted.promise;
+
+  const revocation = first.hooks.revokePrivateData();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(
+    [...first.cacheData.get('gbagl-state-v1').keys()]
+      .some((key) => key.endsWith('-revoked')),
+    true,
+  );
+  const duringRace = createWorkerHarness({
+    cacheData: first.cacheData,
+    instance: 'worker-two',
+  });
+  await duringRace.hooks.ready;
+  assert.equal(duringRace.hooks.state().accessAllowed, false);
+
+  finishAuthorizationWrite.resolve();
+  await Promise.all([authorization, revocation]);
+  const afterRace = createWorkerHarness({
+    cacheData: first.cacheData,
+    instance: 'worker-three',
+  });
+  await afterRace.hooks.ready;
+  const offline = await offlineNavigation(afterRace);
+  assert.equal(afterRace.hooks.state().accessAllowed, false);
+  assert.equal(await offline.text(), 'safe offline shell');
+});
+
+test('failed revoked-state write invalidates older durable authorization', async () => {
+  const first = createWorkerHarness({ instance: 'worker-one' });
+  await authorize(first, 'private residue');
+  const privateCache = first.hooks.state().cacheName;
+  first.state.putImpl = async (entries, key, value) => {
+    if (key.endsWith('-revoked')) throw new Error('state write failure');
+    entries.set(key, value.clone());
+  };
+  first.state.deleteImpl = async (name) => {
+    if (name === 'gbagl-state-v1') return first.cacheData.delete(name);
+    throw new Error('private deletion failure');
+  };
+
+  await first.hooks.revokePrivateData();
+  assert.equal(first.cacheData.has(privateCache), true);
+  assert.equal(first.cacheData.has('gbagl-state-v1'), false);
+
+  const restarted = createWorkerHarness({
+    cacheData: first.cacheData,
+    instance: 'worker-two',
+  });
+  await restarted.hooks.ready;
+  const offline = await offlineNavigation(restarted);
+
+  assert.equal(restarted.hooks.state().accessAllowed, false);
+  assert.equal(await offline.text(), 'safe offline shell');
+});
+
+test('corrupt state fails closed and self-heals for later authorization', async () => {
+  const cacheData = new Map([
+    ['gbagl-state-v1', new Map([[
+      'https://gba.gl/__gbagl-private-state__/corrupt',
+      new Response('{not-json', {
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    ]])],
+  ]);
+  const failedClosed = createWorkerHarness({
+    cacheData,
+    instance: 'worker-one',
+  });
+  await failedClosed.hooks.ready;
+  assert.equal(failedClosed.hooks.state().accessAllowed, false);
+
+  await authorize(failedClosed, 'fresh snapshot');
+  const restarted = createWorkerHarness({
+    cacheData,
+    instance: 'worker-two',
+  });
+  await restarted.hooks.ready;
+  const offline = await offlineNavigation(restarted);
+
+  assert.equal(restarted.hooks.state().accessAllowed, true);
+  assert.equal(await offline.text(), 'fresh snapshot');
 });

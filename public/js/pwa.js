@@ -22,26 +22,47 @@
     }
   }
 
-  async function clearPrivateData() {
-    if ('caches' in window) {
-      const names = await window.caches.keys();
-      await Promise.all(names
-        .filter((name) => name.startsWith('gbagl-private-'))
-        .map((name) => window.caches.delete(name)));
-    }
-    clearReminderDedupe();
+  function signalPrivateDataClear() {
     if (!('serviceWorker' in navigator)) return;
-    const registration = await navigator.serviceWorker.getRegistration('/');
-    try {
-      const notifications = await registration?.getNotifications();
-      notifications?.forEach((notification) => notification.close());
-    } catch (error) {
-      console.warn('GBAGL notifications could not be cleared:', error);
+    const controller = navigator.serviceWorker.controller;
+    if (controller) {
+      controller.postMessage({ type: 'CLEAR_PRIVATE_DATA' });
+      return;
     }
-    const worker = navigator.serviceWorker.controller
-      || registration?.active
-      || registration?.waiting;
-    worker?.postMessage({ type: 'CLEAR_PRIVATE_DATA' });
+    void navigator.serviceWorker.getRegistration('/').then((registration) => {
+      const worker = registration?.active || registration?.waiting;
+      worker?.postMessage({ type: 'CLEAR_PRIVATE_DATA' });
+    }).catch((error) => {
+      console.warn('GBAGL worker cleanup signal failed:', error);
+    });
+  }
+
+  async function clearPhysicalPrivateData() {
+    const operations = [];
+    if ('caches' in window) {
+      operations.push((async () => {
+        const names = await window.caches.keys();
+        await Promise.allSettled(names
+          .filter((name) => name.startsWith('gbagl-private-'))
+          .map((name) => window.caches.delete(name)));
+      })());
+    }
+    if ('serviceWorker' in navigator) {
+      operations.push((async () => {
+        const registration = await navigator.serviceWorker.getRegistration('/');
+        const notifications = await registration?.getNotifications();
+        await Promise.allSettled((notifications || []).map(
+          (notification) => Promise.resolve().then(() => notification.close()),
+        ));
+      })());
+    }
+    await Promise.allSettled(operations);
+  }
+
+  function clearPrivateData() {
+    clearReminderDedupe();
+    signalPrivateDataClear();
+    return clearPhysicalPrivateData();
   }
 
   function updateNetworkStatus() {
@@ -114,14 +135,10 @@
       });
     });
     document.querySelectorAll('form[action="/lock"]').forEach((form) => {
-      form.addEventListener('submit', async (event) => {
-        event.preventDefault();
-        try {
-          await clearPrivateData();
-        } catch (error) {
+      form.addEventListener('submit', () => {
+        void clearPrivateData().catch((error) => {
           console.error('GBAGL private cache clearing failed:', error);
-        }
-        HTMLFormElement.prototype.submit.call(form);
+        });
       });
     });
   });

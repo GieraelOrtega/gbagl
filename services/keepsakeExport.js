@@ -15,6 +15,8 @@ const MAX_MEDIA_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_TOTAL_MEDIA_BYTES = 128 * 1024 * 1024;
 const MAX_OUTPUT_BYTES = 160 * 1024 * 1024;
 const MAX_PDF_IMAGE_PIXELS = 12 * 1024 * 1024;
+const MAX_PDF_TOTAL_PIXELS = 48 * 1024 * 1024;
+const MAX_PDF_IMAGES = 100;
 
 const EXPORT_QUERIES = Object.freeze({
   settings: `SELECT setting_key, setting_value FROM site_settings
@@ -429,7 +431,42 @@ function jpegDimensions(buffer) {
   throw new Error('JPEG dimensions were not found');
 }
 
-function safePdfImage(buffer, mediaType) {
+function pngDimensions(buffer) {
+  if (buffer.length < 33) throw new Error('Invalid PNG image');
+  const width = buffer.readUInt32BE(16);
+  const height = buffer.readUInt32BE(20);
+  assertImageDimensions(width, height);
+  return { width, height };
+}
+
+function decodePng(buffer) {
+  return new Promise((resolve, reject) => {
+    new PNG({ checkCRC: true }).parse(buffer, (error, decoded) => {
+      if (error) reject(error);
+      else resolve(decoded);
+    });
+  });
+}
+
+function encodePng(decoded) {
+  return new Promise((resolve, reject) => {
+    const output = new PNG({
+      colorType: 6,
+      height: decoded.height,
+      inputColorType: 6,
+      inputHasAlpha: true,
+      width: decoded.width,
+    });
+    decoded.data.copy(output.data);
+    const chunks = [];
+    output.pack()
+      .on('data', (chunk) => chunks.push(chunk))
+      .on('error', reject)
+      .on('end', () => resolve(Buffer.concat(chunks)));
+  });
+}
+
+async function safePdfImage(buffer, mediaType) {
   if (mediaType === 'image/jpeg') {
     jpegDimensions(buffer);
     return buffer;
@@ -437,16 +474,49 @@ function safePdfImage(buffer, mediaType) {
   if (mediaType !== 'image/png' || buffer.length < 33) {
     throw new Error('PDF image must be a JPEG or PNG');
   }
-  const width = buffer.readUInt32BE(16);
-  const height = buffer.readUInt32BE(20);
-  assertImageDimensions(width, height);
-  const decoded = PNG.sync.read(buffer, { checkCRC: true });
+  pngDimensions(buffer);
+  const decoded = await decodePng(buffer);
   assertImageDimensions(decoded.width, decoded.height);
-  return PNG.sync.write(decoded, {
-    colorType: 6,
-    inputColorType: 6,
-    inputHasAlpha: true,
-  });
+  return encodePng(decoded);
+}
+
+async function preparePdfMedia(media, limits = {}) {
+  const maxImages = limits.maxImages || MAX_PDF_IMAGES;
+  const maxTotalPixels = limits.maxTotalPixels || MAX_PDF_TOTAL_PIXELS;
+  let candidateCount = 0;
+  let totalPixels = 0;
+  const prepared = [];
+  for (const item of media) {
+    const result = { ...item };
+    const mediaType = item.mediaType || item.record?.media_type;
+    if (!item.buffer || !['image/jpeg', 'image/png'].includes(mediaType)) {
+      prepared.push(result);
+      continue;
+    }
+    candidateCount += 1;
+    if (candidateCount > maxImages) {
+      result.pdfStatus = 'skipped-image-count-budget';
+      prepared.push(result);
+      continue;
+    }
+    try {
+      const dimensions = mediaType === 'image/jpeg'
+        ? jpegDimensions(item.buffer)
+        : pngDimensions(item.buffer);
+      const pixels = dimensions.width * dimensions.height;
+      if (totalPixels + pixels > maxTotalPixels) {
+        result.pdfStatus = 'skipped-total-pixel-budget';
+      } else {
+        result.pdfBuffer = await safePdfImage(item.buffer, mediaType);
+        result.pdfStatus = 'included';
+        totalPixels += pixels;
+      }
+    } catch {
+      result.pdfStatus = 'invalid-or-unsupported';
+    }
+    prepared.push(result);
+  }
+  return prepared;
 }
 
 function addPdfSection(doc, title, items, renderItem) {
@@ -462,7 +532,8 @@ function addPdfSection(doc, title, items, renderItem) {
   });
 }
 
-function buildPdf(exportData, media) {
+async function buildPdf(exportData, media) {
+  const pdfMedia = await preparePdfMedia(media);
   return new Promise((resolve, reject) => {
     const chunks = [];
     let byteLength = 0;
@@ -501,7 +572,7 @@ function buildPdf(exportData, media) {
       { align: 'center' },
     );
 
-    const timelineMedia = new Map(media
+    const timelineMedia = new Map(pdfMedia
       .filter((item) => item.kind === 'timeline')
       .map((item) => [Number(item.record.id), item]));
     addPdfSection(doc, 'Timeline', exportData.timeline, (item) => {
@@ -509,16 +580,17 @@ function buildPdf(exportData, media) {
         .text(`${textValue(item.milestone_date)} - ${textValue(item.title)}`);
       doc.font('Helvetica').fontSize(10).text(textValue(item.description));
       const image = timelineMedia.get(Number(item.id));
-      if (image?.buffer && ['image/jpeg', 'image/png'].includes(image.mediaType)) {
-        try {
-          doc.image(safePdfImage(image.buffer, image.mediaType), {
-            fit: [450, 260],
-            align: 'center',
-          });
-        } catch {
-          doc.font('Helvetica-Oblique').fontSize(9)
-            .text('Timeline photo could not be embedded.');
-        }
+      if (image?.pdfBuffer) {
+        doc.image(image.pdfBuffer, {
+          fit: [450, 260],
+          align: 'center',
+        });
+      } else if (image?.pdfStatus?.startsWith('skipped-')) {
+        doc.font('Helvetica-Oblique').fontSize(9)
+          .text('Timeline photo skipped because the PDF image safety budget was reached.');
+      } else if (image?.buffer && ['image/jpeg', 'image/png'].includes(image.mediaType)) {
+        doc.font('Helvetica-Oblique').fontSize(9)
+          .text('Timeline photo could not be embedded.');
       } else if (image) {
         doc.font('Helvetica-Oblique').fontSize(9)
           .text(`${image.mediaType === 'image/webp' ? 'WebP' : 'Timeline'} photo included in ZIP as ${image.archivePath}.`);
@@ -541,7 +613,7 @@ function buildPdf(exportData, media) {
     });
 
     const albumById = new Map(exportData.albums.map((album) => [Number(album.id), album]));
-    addPdfSection(doc, 'Albums and photos', media.filter((item) => item.kind === 'album'), (item) => {
+    addPdfSection(doc, 'Albums and photos', pdfMedia.filter((item) => item.kind === 'album'), (item) => {
       const photo = item.record;
       const album = albumById.get(Number(photo.album_id));
       doc.font('Helvetica-Bold').fontSize(11)
@@ -551,16 +623,17 @@ function buildPdf(exportData, media) {
       } else if (photo.media_type === 'image/webp') {
         doc.font('Helvetica-Oblique').fontSize(9)
           .text(`WebP photo included in ZIP as ${item.archivePath}.`);
+      } else if (item.pdfBuffer) {
+        doc.image(item.pdfBuffer, {
+          fit: [450, 300],
+          align: 'center',
+        });
+      } else if (item.pdfStatus?.startsWith('skipped-')) {
+        doc.font('Helvetica-Oblique').fontSize(9)
+          .text('Photo skipped because the PDF image safety budget was reached.');
       } else {
-        try {
-          doc.image(safePdfImage(item.buffer, photo.media_type), {
-            fit: [450, 300],
-            align: 'center',
-          });
-        } catch {
-          doc.font('Helvetica-Oblique').fontSize(9)
-            .text('Photo could not be embedded; its caption remains in this PDF.');
-        }
+        doc.font('Helvetica-Oblique').fontSize(9)
+          .text('Photo could not be embedded; its caption remains in this PDF.');
       }
     });
 
@@ -568,10 +641,16 @@ function buildPdf(exportData, media) {
     for (let index = range.start; index < range.start + range.count; index += 1) {
       doc.switchToPage(index);
       doc.font('Helvetica').fontSize(8).fillColor('#8b6070')
-        .text(`Page ${index + 1} of ${range.count}`, 54, doc.page.height - 38, {
-          align: 'center',
-          width: doc.page.width - 108,
-        });
+        .text(
+          `Page ${index + 1} of ${range.count}`,
+          54,
+          doc.page.height - doc.page.margins.bottom - 10,
+          {
+            align: 'center',
+            lineBreak: false,
+            width: doc.page.width - 108,
+          },
+        );
     }
     doc.end();
   });
@@ -664,6 +743,7 @@ module.exports = {
   createKeepsakeExportService,
   loadKeepsakeData,
   mediaArchiveName,
+  preparePdfMedia,
   safePdfImage,
   safeArchiveName,
 };
