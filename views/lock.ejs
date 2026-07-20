@@ -21,6 +21,7 @@
 
       <form class="passcode__form<%= error ? ' passcode__form--error' : '' %>"
             action="/unlock" method="post" id="passcodeForm">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
         <input type="hidden" name="next" value="<%= next %>" />
         <label class="visually-hidden" for="passcodeInput">4-digit passcode</label>
         <input class="passcode__input" id="passcodeInput" name="passcode"

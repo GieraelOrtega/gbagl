@@ -14,6 +14,16 @@
       <li>
         <a href="/timeline"  class="nav__link<%= page === 'timeline'  ? ' nav__link--active' : '' %>">📖 Timeline</a>
       </li>
+      <li>
+        <a href="<%= isAdmin ? '/admin' : '/admin/login' %>"
+           class="nav__link<%= page === 'admin' ? ' nav__link--active' : '' %>">Admin</a>
+      </li>
+      <li>
+        <form action="/lock" method="post" class="nav__form">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+          <button type="submit" class="nav__button">Lock</button>
+        </form>
+      </li>
     </ul>
   </div>
 </nav>

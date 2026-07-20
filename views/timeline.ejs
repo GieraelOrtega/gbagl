@@ -12,7 +12,6 @@
     </header>
 
     <!-- ── Timeline ───────────────────────────────────────── -->
-    <!-- ✏️ EDIT: Update milestones in /data/timeline.js     -->
     <div class="timeline">
       <% milestones.forEach((milestone, index) => { %>
       <div class="timeline__item <%= index % 2 === 0 ? 'timeline__item--left' : 'timeline__item--right' %>">
@@ -25,6 +24,9 @@
           <div class="timeline__date"><%= milestone.date %></div>
           <h2 class="timeline__title"><%= milestone.title %></h2>
           <p class="timeline__description"><%= milestone.description %></p>
+          <% if (milestone.link_url) { %>
+            <p><a href="<%= milestone.link_url %>" rel="noopener noreferrer">Visit memory</a></p>
+          <% } %>
 
           <% if (milestone.photo) { %>
             <!-- 📸 Photo for this milestone -->
@@ -33,11 +35,9 @@
                  class="timeline__photo"
                  loading="lazy" />
           <% } else { %>
-            <!-- Placeholder shown until a real photo is added -->
-            <!-- ✏️ Add a photo: set the 'photo' field in data/timeline.js -->
             <div class="timeline__photo-placeholder">
               <span>📸</span>
-              <small>Add a photo in <code>data/timeline.js</code></small>
+              <small>No photo for this memory yet</small>
             </div>
           <% } %>
         </article>
