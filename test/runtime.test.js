@@ -58,6 +58,26 @@ test('DB_SOCKET selects the Unix socket and omits TCP options', () => {
   assert.equal(options.connectionLimit, 10);
 });
 
+test('GBAGL database settings override conflicting generic platform credentials', () => {
+  const options = buildPoolOptions({
+    GBAGL_DB_SOCKET: ' /srv/run/mysqld/mysqld.sock ',
+    GBAGL_DB_USER: 'root',
+    GBAGL_DB_PASSWORD: '',
+    GBAGL_DB_NAME: 'default_db',
+    DB_SOCKET: '/tmp/platform.sock',
+    DB_USER: 'hosting-db',
+    DB_PASSWORD: 'injected-platform-password',
+    DB_NAME: 'platform_db',
+  });
+
+  assert.equal(options.socketPath, '/srv/run/mysqld/mysqld.sock');
+  assert.equal('host' in options, false);
+  assert.equal('port' in options, false);
+  assert.equal(options.user, 'root');
+  assert.equal(options.password, '');
+  assert.equal(options.database, 'default_db');
+});
+
 test('database options preserve TCP fallback when DB_SOCKET is absent', () => {
   const options = buildPoolOptions({
     DB_HOST: 'database.example',
@@ -72,11 +92,14 @@ test('database options preserve TCP fallback when DB_SOCKET is absent', () => {
   assert.equal(options.port, 4406);
 });
 
-test('blank DB_SOCKET uses TCP settings', () => {
+test('blank GBAGL_DB_SOCKET overrides generic socket and uses scoped TCP settings', () => {
   const options = buildPoolOptions({
-    DB_SOCKET: '   ',
-    DB_HOST: '127.0.0.1',
-    DB_PORT: '3307',
+    GBAGL_DB_SOCKET: '   ',
+    GBAGL_DB_HOST: '127.0.0.1',
+    GBAGL_DB_PORT: '3307',
+    DB_SOCKET: '/tmp/platform.sock',
+    DB_HOST: 'database.example',
+    DB_PORT: '4406',
   });
 
   assert.equal('socketPath' in options, false);
