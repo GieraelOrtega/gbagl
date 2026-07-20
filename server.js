@@ -19,12 +19,18 @@ const { createAdminAuth } = require('./middleware/adminAuth');
 const { createCsrfProtection } = require('./middleware/csrf');
 const { createPasscodeAuth, safeDestination } = require('./middleware/passcode');
 const { createBackupService, scheduleBackups } = require('./services/backup');
+const { createKeepsakeExportService } = require('./services/keepsakeExport');
 const { createAdminRouter } = require('./routes/admin');
 const { createAdminHubRouter, createUploadIngress } = require('./routes/adminHub');
 const { createAlbumsRouter } = require('./routes/albums');
 const { createBucketRouter } = require('./routes/bucket');
 const { createJournalRouter } = require('./routes/journal');
 const { createRemindersRouter } = require('./routes/reminders');
+const {
+  PRIVATE_SNAPSHOT_HEADER,
+  SNAPSHOT_OPT_IN,
+  isPrivateSnapshotPath,
+} = require('./public/js/pwaPolicy');
 
 function createApp(config = loadConfig(), services = {}) {
   const app = express();
@@ -36,6 +42,8 @@ function createApp(config = loadConfig(), services = {}) {
     uploadDir: config.uploadDir || path.join(__dirname, 'runtime', 'uploads'),
     uploadMaxBytes: config.uploadMaxBytes || 8 * 1024 * 1024,
   };
+  const exportService = services.exportService
+    || createKeepsakeExportService(uploadConfig);
 
   app.set('view engine', 'ejs');
   app.set('views', path.join(__dirname, 'views'));
@@ -45,11 +53,12 @@ function createApp(config = loadConfig(), services = {}) {
   app.use(express.json());
   app.use((req, res, next) => {
     res.locals.isAdmin = false;
+    res.locals.offlineSnapshot = false;
     res.set({
       'Content-Security-Policy': [
         "default-src 'self'",
-        "style-src 'self' https://fonts.googleapis.com",
-        'font-src https://fonts.gstatic.com',
+        "style-src 'self'",
+        "font-src 'self'",
         "img-src 'self' data:",
         "script-src 'self'",
         "form-action 'self'",
@@ -63,15 +72,39 @@ function createApp(config = loadConfig(), services = {}) {
     });
     next();
   });
-  app.use('/css', express.static(path.join(__dirname, 'public/css')));
-  app.get('/js/lock.js', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public/js/lock.js'));
-  });
+  const publicFile = (relativePath, headers = {}) => (req, res) => {
+    res.set(headers);
+    res.sendFile(path.join(__dirname, 'public', relativePath));
+  };
+  app.get('/css/style.css', publicFile('css/style.css'));
+  app.get('/js/lock.js', publicFile('js/lock.js'));
+  app.get('/js/pwa.js', publicFile('js/pwa.js'));
+  app.get('/js/pwaPolicy.js', publicFile('js/pwaPolicy.js'));
+  app.get('/manifest.webmanifest', publicFile('manifest.webmanifest', {
+    'Content-Type': 'application/manifest+json',
+  }));
+  app.get('/service-worker.js', publicFile('service-worker.js', {
+    'Cache-Control': 'no-cache',
+    'Service-Worker-Allowed': '/',
+  }));
+  app.get('/offline.html', publicFile('offline.html'));
+  app.get('/icons/icon-192.png', publicFile('icons/icon-192.png'));
+  app.get('/icons/icon-512.png', publicFile('icons/icon-512.png'));
   const csrfProtection = createCsrfProtection({
     secret: config.cookieSecret,
     secure: config.production,
   });
-  app.use(csrfProtection.initialize);
+  app.use((req, res, next) => {
+    req.isOfflineSnapshot = req.method === 'GET'
+      && req.get('X-GBAGL-Offline-Snapshot') === '1'
+      && isPrivateSnapshotPath(req.path)
+      && passcodeAuth.isUnlocked(req);
+    if (req.isOfflineSnapshot) {
+      res.locals.csrfToken = null;
+      return next();
+    }
+    return csrfProtection.initialize(req, res, next);
+  });
   app.use(
     '/admin/albums/photos/upload',
     createUploadIngress(uploadConfig, adminAuth, passcodeAuth),
@@ -96,7 +129,10 @@ function createApp(config = loadConfig(), services = {}) {
 
   app.post('/unlock', unlockLimiter, (req, res) => {
     if (!passcodeAuth.isValidPasscode(req.body.passcode)) {
-      res.set('Cache-Control', 'no-store');
+      res.set({
+        'Cache-Control': 'no-store',
+        'X-GBAGL-Authorization-Lost': '1',
+      });
       return res.status(401).render('lock', {
         title: 'GBAGL — Locked',
         error: 'Incorrect passcode. Try again.',
@@ -110,11 +146,25 @@ function createApp(config = loadConfig(), services = {}) {
   app.use(passcodeAuth.requirePasscode);
   app.use((req, res, next) => {
     res.locals.isAdmin = adminAuth.isAdmin(req);
+    if (
+      req.isOfflineSnapshot
+    ) {
+      res.locals.offlineSnapshot = true;
+      res.set('Vary', 'X-GBAGL-Offline-Snapshot');
+      res.allowPrivateSnapshot = () => res.set(
+        PRIVATE_SNAPSHOT_HEADER,
+        SNAPSHOT_OPT_IN,
+      );
+    }
     next();
   });
   app.post('/lock', (req, res) => {
     passcodeAuth.clearUnlockCookie(res);
     adminAuth.clearAdminCookie(res);
+    res.set({
+      'Clear-Site-Data': '"cache", "storage"',
+      'X-GBAGL-Clear-Private-Data': '1',
+    });
     return res.redirect(303, '/');
   });
   app.use(express.static(path.join(__dirname, 'public')));
@@ -122,6 +172,7 @@ function createApp(config = loadConfig(), services = {}) {
     adminAuth,
     backupService,
     config: uploadConfig,
+    exportService,
   }));
   app.use('/', require('./routes/index'));
   app.use('/adventure', require('./routes/adventure'));

@@ -62,6 +62,7 @@ function createPasscodeAuth(config) {
 
     if (isUnlocked(req)) return next();
 
+    res.set('X-GBAGL-Authorization-Lost', '1');
     return res.status(401).render('lock', {
       title: 'GBAGL — Locked',
       error: null,

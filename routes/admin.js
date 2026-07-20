@@ -8,6 +8,7 @@ const {
   validateSettings,
 } = require('../lib/validation');
 const { createAdminHubRouter } = require('./adminHub');
+const { createExportRouter } = require('./exports');
 
 const VALID_STATUSES = ['pending', 'done', 'favorite'];
 
@@ -16,7 +17,12 @@ function redirectMessage(res, type, message) {
   return res.redirect(303, `/admin?${params}`);
 }
 
-function createAdminRouter({ adminAuth, backupService, config }) {
+function createAdminRouter({
+  adminAuth,
+  backupService,
+  config,
+  exportService,
+}) {
   const router = express.Router();
   const loginLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -59,6 +65,7 @@ function createAdminRouter({ adminAuth, backupService, config }) {
     return res.redirect(303, '/admin/login');
   });
 
+  router.use('/exports', createExportRouter(exportService));
   router.use(createAdminHubRouter(config));
 
   router.get('/', async (req, res) => {

@@ -18,23 +18,29 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!response.ok) throw new Error('Reminder feed unavailable');
     const payload = await response.json();
     const formatReminderTime = window.gbaglReminderFormat?.formatReminderTime;
-    payload.reminders.forEach((reminder) => {
+    for (const reminder of payload.reminders) {
       const key = `gbagl-reminder-${reminder.id}-${reminder.reminderAt}`;
-      if (localStorage.getItem(key)) return;
-      const notification = new Notification(reminder.title, {
+      if (localStorage.getItem(key)) continue;
+      const options = {
         body: `Scheduled for ${
           formatReminderTime
             ? formatReminderTime(reminder.eventAt, payload.timeZone)
             : new Date(reminder.eventAt).toLocaleString()
         }`,
         tag: `gbagl-event-${reminder.id}`,
-      });
-      notification.addEventListener('click', () => {
-        window.focus();
-        window.location.assign(reminder.url);
-      });
+        data: { url: reminder.url },
+        icon: '/icons/icon-192.png',
+      };
+      const show = async () => {
+        const registration = 'serviceWorker' in navigator
+          ? await navigator.serviceWorker.ready.catch(() => null)
+          : null;
+        if (!registration) throw new Error('Service worker unavailable');
+        await registration.showNotification(reminder.title, options);
+      };
+      await show();
       localStorage.setItem(key, 'shown');
-    });
+    }
   }
 
   button.addEventListener('click', async () => {

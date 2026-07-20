@@ -1,6 +1,6 @@
 # GBAGL — Gunna Be a Great Life
 
-GBAGL is a private, mobile-friendly relationship site built with Node.js, Express, EJS, and MySQL. It includes a site-wide passcode lock, separate admin authentication, a shared bucket list, anniversary dashboard, events and browser reminders, protected photo albums, a timeline-linked journal, a date-idea planner, and rotating backups.
+GBAGL is a private, installable relationship site built with Node.js, Express, EJS, and MySQL. It includes a site-wide passcode lock, separate admin authentication, privacy-aware offline viewing, a shared bucket list, anniversary dashboard, events and browser reminders, protected photo albums, a timeline-linked journal, a date-idea planner, keepsake exports, and rotating backups.
 
 ## Local development
 
@@ -64,7 +64,31 @@ New album uploads are written under `UPLOAD_DIR` (default `runtime/uploads`) and
 
 Deployment-local images already under `public/images` can be linked by an explicit `/images/<basename>` reference. The application does not enumerate that directory. Keep private deployment images out of GitHub.
 
-Browser reminder permission is requested only from the **Enable browser reminders** button. Alerts are checked while GBAGL remains open; there is no background push delivery in Layer 2. Each event also has an ICS download for a device calendar. The authenticated, no-store JSON feed exposes only due reminder IDs, titles, times, and site URLs and is shaped for a later Layer 3 service worker.
+Browser reminder permission is requested only from the **Enable browser reminders** button. Alerts are checked while GBAGL remains open; there is no background push delivery. Each event also has an ICS download for a device calendar. The authenticated, no-store JSON feed exposes only due reminder IDs, titles, times, and site URLs.
+
+When a service worker registration is available, due alerts use service-worker notifications so selecting one can focus or open its same-origin event page. GBAGL still checks reminders only while an app page is open. It does not use push messaging and cannot promise background delivery after every page is closed. Reminder times continue to use the configured IANA timezone.
+
+## Installable app and offline privacy
+
+Supported browsers show **Install app** only after they provide an install prompt. Installation uses the checked-in GBAGL manifest and original maskable icon artwork; there are no third-party runtime scripts, styles, or fonts.
+
+The versioned service worker keeps two separate caches:
+
+- The public shell contains only the lock/offline stylesheet, scripts, manifest, and icons. It contains no relationship data.
+- The private cache accepts only server-opted-in, read-only snapshots of `/`, `/timeline`, `/bucket`, `/reminders`, `/albums`, `/albums/:id`, and `/journal`, plus successfully authorized album photo responses. Live HTML with forms or CSRF tokens is never stored.
+
+Admin pages, backup and keepsake downloads, reminder JSON, calendar downloads, writes, redirects, cross-origin resources, authorization failures, and arbitrary paths are never cached. Previously viewed private pages can be read offline, but all forms are absent from offline snapshots and live mutation controls disable when the browser goes offline.
+
+Use **Lock Now** to clear both authentication cookies, private Cache Storage, and browser-reminder dedupe state. An authorization loss also purges the private cache. Offline copies remain on that browser/device until Lock Now or site-data clearing. This is a privacy deterrent, not encrypted storage; anyone with access to that browser profile may be able to read cached copies.
+
+## Keepsake exports
+
+The admin-only `/admin/exports` page requires both the site passcode and separate admin authentication. Export downloads are rate-limited, `no-store`, and fail with an explicit `503` while MySQL is unavailable.
+
+- PDF: partner names, anniversary, timeline, journal, completed bucket memories, shared events, album metadata/captions, page numbers, and safely readable JPEG/PNG photos. Unsupported WebP and other timeline formats retain a caption/reference and remain available in ZIP.
+- ZIP: a self-contained printable `keepsake.html`, deterministic `data.json`, `manifest.json`, and safely resolved album/timeline media under generated archive paths.
+
+Each export reads its records in one repeatable-read transaction and holds the existing media coordinator while files are collected. Missing or invalid media is reported without crashing or exposing server paths. Exports never contain database credentials, cookies, authentication secrets, backup archives, temp files, or deployment paths.
 
 ## Backups
 
@@ -110,6 +134,7 @@ Backups use one repeatable-read MySQL snapshot for all exported tables, preserve
 | `/admin/events` | Site passcode + admin | Event/reminder CRUD |
 | `/admin/albums` | Site passcode + admin | Album/photo CRUD, uploads, references, and ordering |
 | `/admin/journals` | Site passcode + admin | Journal CRUD |
+| `/admin/exports` | Site passcode + admin | Sensitive PDF and portable ZIP keepsake downloads |
 | `POST /lock` | Site passcode + CSRF | Clear site and admin cookies |
 
 ## Private deployment data
@@ -124,4 +149,4 @@ Do not commit `.env`, runtime uploads, backup archives, database exports, or pri
 npm test
 ```
 
-The test suite uses Node's built-in test runner and covers configuration, signed-cookie authentication, CSRF/path validation, countdown/leap-day behavior, upload magic/path validation and cleanup, vote toggling, ICS formatting, and key lock/admin/feature HTTP behavior.
+The test suite uses Node's built-in test runner and covers configuration, signed-cookie authentication, CSRF/path validation, countdown/leap-day behavior, upload magic/path validation and cleanup, vote toggling, ICS formatting, PWA cache policy and lock clearing, export authorization and transaction cleanup, ZIP safety/content, PDF output, and key lock/admin/feature HTTP behavior.

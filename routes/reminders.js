@@ -49,6 +49,7 @@ function createRemindersRouter() {
         dbError = 'Events could not be loaded.';
       }
     }
+    if (!dbError) res.allowPrivateSnapshot?.();
     return res.render('reminders', {
       title: 'Events & Reminders | GBAGL',
       page: 'reminders',

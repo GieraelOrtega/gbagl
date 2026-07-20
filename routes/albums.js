@@ -5,6 +5,7 @@ const { getPool, isDbAvailable } = require('../db');
 const { safeUploadPath } = require('../lib/media');
 const { existingImageName } = require('../lib/hubValidation');
 const { positiveId } = require('../lib/validation');
+const { MEDIA_OPT_IN, PRIVATE_SNAPSHOT_HEADER } = require('../public/js/pwaPolicy');
 
 function unavailable(res, message) {
   return res.status(503).render('error', {
@@ -39,6 +40,7 @@ function createAlbumsRouter(config) {
         dbError = 'Albums could not be loaded.';
       }
     }
+    if (!dbError) res.allowPrivateSnapshot?.();
     return res.render('albums', {
       title: 'Photo Albums | GBAGL',
       page: 'albums',
@@ -69,6 +71,7 @@ function createAlbumsRouter(config) {
         ),
       ]);
       if (!albums[0]) return next();
+      res.allowPrivateSnapshot?.();
       return res.render('album', {
         title: `${albums[0].title} | GBAGL`,
         page: 'albums',
@@ -109,6 +112,7 @@ function createAlbumsRouter(config) {
         'Content-Type': photo.media_type,
         'Content-Disposition': 'inline',
         'Cache-Control': 'private, no-store',
+        [PRIVATE_SNAPSHOT_HEADER]: MEDIA_OPT_IN,
         'X-Content-Type-Options': 'nosniff',
       });
       return res.sendFile(filePath);

@@ -23,6 +23,7 @@ function createJournalRouter() {
         dbError = 'Journal entries could not be loaded.';
       }
     }
+    if (!dbError) res.allowPrivateSnapshot?.();
     return res.render('journal', {
       title: 'Shared Journal | GBAGL',
       page: 'journal',

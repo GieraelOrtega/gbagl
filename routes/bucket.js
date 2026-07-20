@@ -57,6 +57,7 @@ function createBucketRouter() {
         dbError = 'The bucket list could not be loaded.';
       }
     }
+    if (!dbError) res.allowPrivateSnapshot?.();
     return res.render('bucket', {
       title: 'Our Bucket List | GBAGL',
       page: 'bucket',

@@ -55,6 +55,7 @@ router.get('/', async (req, res) => {
       dbError = 'Dashboard summaries could not be loaded.';
     }
   }
+  if (!dbError) res.allowPrivateSnapshot?.();
   res.render('index', {
     title: 'GBAGL — Gunna Be a Great Life',
     page:  'home',
