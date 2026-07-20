@@ -81,7 +81,8 @@ router.get('/', readLimiter, async (req, res) => {
   if (isDbAvailable()) {
     try {
       const [rows] = await getPool().execute(
-        'SELECT * FROM date_ideas ORDER BY created_at DESC',
+        `SELECT *, DATE_FORMAT(created_at, '%b %e, %Y') AS created_at_display
+         FROM date_ideas ORDER BY created_at DESC`,
       );
       ideas = rows;
     } catch (err) {

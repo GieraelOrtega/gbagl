@@ -1,0 +1,24 @@
+<%- include('partials/head') %>
+<%- include('partials/nav') %>
+<main class="content-page">
+  <div class="container">
+    <header class="page-header">
+      <h1 class="page-header__title"><%= album.title %></h1>
+      <p class="page-header__subtitle"><%= album.description %></p>
+    </header>
+    <div class="photo-grid">
+      <% photos.forEach((photo) => { %>
+        <figure class="card photo-card">
+          <img src="/albums/photos/<%= photo.id %>/content" alt="<%= photo.caption || album.title %>" loading="lazy" />
+          <figcaption>
+            <% if (photo.caption) { %><p><%= photo.caption %></p><% } %>
+            <% if (photo.photo_date) { %><small><%= photo.photo_date %></small><% } %>
+            <% if (photo.milestone_title) { %><small>Timeline: <%= photo.milestone_title %></small><% } %>
+          </figcaption>
+        </figure>
+      <% }) %>
+    </div>
+    <% if (photos.length === 0) { %><div class="empty-state">This album has no photos yet.</div><% } %>
+  </div>
+</main>
+<%- include('partials/footer') %>

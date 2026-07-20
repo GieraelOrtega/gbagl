@@ -1,0 +1,26 @@
+<div class="admin-grid">
+  <div class="form-group">
+    <label class="form-label" for="<%= prefix %>-title">Title</label>
+    <input class="form-input" id="<%= prefix %>-title" name="title" maxlength="150"
+           value="<%= entry.title || '' %>" required />
+  </div>
+  <div class="form-group">
+    <label class="form-label" for="<%= prefix %>-date">Entry date</label>
+    <input class="form-input" id="<%= prefix %>-date" name="entry_date" type="date"
+           value="<%= entry.entry_date || '' %>" required />
+  </div>
+  <div class="form-group">
+    <label class="form-label" for="<%= prefix %>-milestone">Timeline milestone</label>
+    <select class="form-select" id="<%= prefix %>-milestone" name="milestone_id">
+      <option value="">None</option>
+      <% milestones.forEach((milestone) => { %>
+        <option value="<%= milestone.id %>" <%= entry.milestone_id === milestone.id ? 'selected' : '' %>><%= milestone.title %></option>
+      <% }) %>
+    </select>
+  </div>
+</div>
+<div class="form-group">
+  <label class="form-label" for="<%= prefix %>-body">Journal entry</label>
+  <textarea class="form-textarea form-textarea--large" id="<%= prefix %>-body" name="body"
+            maxlength="20000" required><%= entry.body || '' %></textarea>
+</div>

@@ -118,7 +118,7 @@
           <% } %>
 
           <div class="idea-card__meta">
-            <span class="idea-card__date"><%= new Date(idea.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) %></span>
+            <span class="idea-card__date"><%= idea.created_at_display %></span>
             <span class="idea-card__status idea-card__status--<%= idea.status %>">
               <%= { pending: '💭 Idea', done: '✅ Done!', favorite: '❤️ Favourite' }[idea.status] %>
             </span>

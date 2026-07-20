@@ -17,6 +17,7 @@
     "ejs": "^3.1.10",
     "express": "^4.22.2",
     "express-rate-limit": "^8.5.2",
+    "multer": "^2.2.0",
     "mysql2": "^3.11.3"
   },
   "devDependencies": {

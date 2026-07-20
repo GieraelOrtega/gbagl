@@ -1,0 +1,25 @@
+<%- include('partials/head') %>
+<%- include('partials/nav') %>
+<main class="content-page">
+  <div class="container">
+    <header class="page-header">
+      <h1 class="page-header__title">Photo Albums</h1>
+      <p class="page-header__subtitle">Private photos, available only after unlocking GBAGL.</p>
+    </header>
+    <% if (dbError) { %><div class="alert alert--warning"><%= dbError %></div><% } %>
+    <div class="album-grid">
+      <% albums.forEach((album) => { %>
+        <article class="card album-card">
+          <% if (album.cover_photo_id) { %>
+            <img src="/albums/photos/<%= album.cover_photo_id %>/content" alt="" loading="lazy" />
+          <% } %>
+          <h2 class="card__title"><a href="/albums/<%= album.id %>"><%= album.title %></a></h2>
+          <p><%= album.description %></p>
+          <p><%= album.photo_count %> photo<%= Number(album.photo_count) === 1 ? '' : 's' %></p>
+        </article>
+      <% }) %>
+    </div>
+    <% if (!dbError && albums.length === 0) { %><div class="empty-state">No albums yet.</div><% } %>
+  </div>
+</main>
+<%- include('partials/footer') %>

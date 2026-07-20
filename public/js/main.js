@@ -26,6 +26,20 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  const countdown = document.querySelector('[data-countdown]');
+  if (countdown) {
+    const target = new Date(countdown.dataset.countdown);
+    const updateCountdown = () => {
+      const remaining = target.valueOf() - Date.now();
+      if (remaining <= 0) return;
+      const days = Math.floor(remaining / 86400000);
+      const hours = Math.floor((remaining % 86400000) / 3600000);
+      countdown.querySelector('strong').textContent = `${days}d ${hours}h`;
+    };
+    updateCountdown();
+    window.setInterval(updateCountdown, 60000);
+  }
+
   // ── Auto-dismiss flash alerts after 5 seconds ───────────────
   document.querySelectorAll('.alert').forEach(alert => {
     setTimeout(() => {

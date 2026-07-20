@@ -1,0 +1,26 @@
+<div class="admin-grid">
+  <div class="form-group">
+    <label class="form-label" for="<%= prefix %>-title">Title</label>
+    <input class="form-input" id="<%= prefix %>-title" name="title" maxlength="150"
+           value="<%= event.title || '' %>" required />
+  </div>
+  <div class="form-group">
+    <label class="form-label" for="<%= prefix %>-time">Event date and time</label>
+    <input class="form-input" id="<%= prefix %>-time" name="event_at"
+           type="datetime-local" value="<%= event.event_input || '' %>" required />
+  </div>
+  <div class="form-group">
+    <label class="form-label" for="<%= prefix %>-reminder">Reminder date and time</label>
+    <input class="form-input" id="<%= prefix %>-reminder" name="reminder_at"
+           type="datetime-local" value="<%= event.reminder_input || '' %>" />
+  </div>
+  <label class="check-label">
+    <input type="checkbox" name="is_completed" value="1" <%= event.is_completed ? 'checked' : '' %> />
+    Completed
+  </label>
+</div>
+<div class="form-group">
+  <label class="form-label" for="<%= prefix %>-notes">Notes</label>
+  <textarea class="form-textarea" id="<%= prefix %>-notes" name="notes"
+            maxlength="4000"><%= event.notes || '' %></textarea>
+</div>

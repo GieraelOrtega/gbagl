@@ -46,6 +46,51 @@
 
   </section>
 
+  <section class="dashboard">
+    <div class="container">
+      <% if (dbError) { %><div class="alert alert--warning"><%= dbError %></div><% } %>
+      <div class="dashboard__grid">
+        <article class="card dashboard-card">
+          <h2 class="card__title">Next anniversary</h2>
+          <% if (countdown) { %>
+            <p class="countdown" data-countdown="<%= countdown.date.toISOString() %>">
+              <strong><%= countdown.days %> day<%= countdown.days === 1 ? '' : 's' %></strong>
+              until the next anniversary
+            </p>
+            <p><%= settings.partner_one_name || 'Partner One' %> &amp; <%= settings.partner_two_name || 'Partner Two' %></p>
+          <% } else if (isAdmin) { %>
+            <p>No anniversary date is configured yet.</p>
+            <a href="/admin#site-settings">Configure it in admin</a>
+          <% } else { %>
+            <p>The anniversary countdown has not been configured yet.</p>
+          <% } %>
+        </article>
+        <article class="card dashboard-card">
+          <h2 class="card__title">Bucket progress</h2>
+          <% if (!dbError && bucketProgress.total > 0) { %>
+            <p><strong><%= bucketProgress.completed %> of <%= bucketProgress.total %></strong> dreams completed.</p>
+          <% } else if (!dbError) { %>
+            <p>Your shared bucket list is ready for its first dream.</p>
+          <% } %>
+          <a href="/bucket">Open bucket list</a>
+        </article>
+        <article class="card dashboard-card">
+          <h2 class="card__title">Coming up</h2>
+          <% if (!dbError && upcomingEvents.length > 0) { %>
+            <ul class="compact-list">
+              <% upcomingEvents.forEach((event) => { %>
+                <li><strong><%= event.title %></strong><br /><%= formatDateTime(event.event_at, settings.timezone || 'UTC') %></li>
+              <% }) %>
+            </ul>
+          <% } else if (!dbError) { %>
+            <p>No upcoming events yet.</p>
+          <% } %>
+          <a href="/reminders">View events</a>
+        </article>
+      </div>
+    </div>
+  </section>
+
   <!-- ── Features section ──────────────────────────────────── -->
   <section class="features">
     <div class="container">

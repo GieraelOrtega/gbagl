@@ -18,7 +18,14 @@
     <% if (error) { %><div class="alert alert--error"><%= error %></div><% } %>
     <% if (dbError) { %><div class="alert alert--warning"><%= dbError %></div><% } %>
 
-    <section class="card admin-section">
+    <nav class="admin-tools" aria-label="Layer 2 content management">
+      <a class="btn btn--outline" href="/admin/bucket">Bucket items</a>
+      <a class="btn btn--outline" href="/admin/events">Events</a>
+      <a class="btn btn--outline" href="/admin/albums">Albums & photos</a>
+      <a class="btn btn--outline" href="/admin/journals">Journal entries</a>
+    </nav>
+
+    <section class="card admin-section" id="site-settings">
       <h2 class="card__title">Site settings</h2>
       <form action="/admin/settings" method="post" class="admin-form">
         <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
@@ -36,7 +43,7 @@
           <div class="form-group">
             <label class="form-label" for="anniversary">Anniversary date</label>
             <input class="form-input" id="anniversary" name="anniversary_date" type="date"
-                   value="<%= settings.anniversary_date || '' %>" required />
+                   value="<%= settings.anniversary_date || '' %>" />
           </div>
           <div class="form-group">
             <label class="form-label" for="timezone">IANA timezone</label>

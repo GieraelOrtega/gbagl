@@ -1,0 +1,53 @@
+<%- include('partials/head') %>
+<%- include('partials/nav') %>
+<main class="content-page">
+  <div class="container">
+    <header class="page-header">
+      <h1 class="page-header__title">Events &amp; Reminders</h1>
+      <p class="page-header__subtitle">Times shown in <%= timeZone %>.</p>
+    </header>
+    <% if (dbError) { %><div class="alert alert--warning"><%= dbError %></div><% } %>
+    <% if (error) { %><div class="alert alert--error"><%= error %></div><% } %>
+    <% if (!dbError) { %>
+      <section class="card notification-panel">
+        <h2 class="card__title">While-this-page-is-open reminders</h2>
+        <p>Browser alerts work only while GBAGL is open. They are not background push notifications.</p>
+        <button class="btn btn--primary" id="enableNotifications" type="button">Enable browser reminders</button>
+        <p id="notificationStatus" role="status"></p>
+      </section>
+    <% } %>
+    <section>
+      <h2 class="section-title section-title--left">Upcoming</h2>
+      <div class="hub-grid">
+        <% upcoming.forEach((event) => { %>
+          <article class="card hub-card" id="event-<%= event.id %>">
+            <h3 class="card__title"><%= event.title %></h3>
+            <p><strong><%= formatDateTime(event.event_at, timeZone) %></strong></p>
+            <% if (event.notes) { %><p><%= event.notes %></p><% } %>
+            <a class="btn btn--outline" href="/reminders/<%= event.id %>.ics">Add to calendar</a>
+            <% if (event.reminder_at && !event.reminder_dismissed) { %>
+              <form action="/reminders/<%= event.id %>/dismiss" method="post">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                <button class="btn btn--outline" type="submit">Dismiss browser reminder</button>
+              </form>
+            <% } %>
+          </article>
+        <% }) %>
+      </div>
+      <% if (upcoming.length === 0) { %><div class="empty-state">No upcoming events.</div><% } %>
+    </section>
+    <section>
+      <h2 class="section-title section-title--left">Past</h2>
+      <div class="compact-list">
+        <% past.forEach((event) => { %>
+          <article class="card" id="event-<%= event.id %>">
+            <h3 class="card__title"><%= event.title %></h3>
+            <p><%= formatDateTime(event.event_at, timeZone) %></p>
+          </article>
+        <% }) %>
+      </div>
+      <% if (past.length === 0) { %><div class="empty-state">No past events.</div><% } %>
+    </section>
+  </div>
+</main>
+<%- include('partials/footer') %>

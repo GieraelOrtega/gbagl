@@ -15,6 +15,18 @@
         <a href="/timeline"  class="nav__link<%= page === 'timeline'  ? ' nav__link--active' : '' %>">📖 Timeline</a>
       </li>
       <li>
+        <a href="/bucket" class="nav__link<%= page === 'bucket' ? ' nav__link--active' : '' %>">Bucket List</a>
+      </li>
+      <li>
+        <a href="/reminders" class="nav__link<%= page === 'reminders' ? ' nav__link--active' : '' %>">Events</a>
+      </li>
+      <li>
+        <a href="/albums" class="nav__link<%= page === 'albums' ? ' nav__link--active' : '' %>">Albums</a>
+      </li>
+      <li>
+        <a href="/journal" class="nav__link<%= page === 'journal' ? ' nav__link--active' : '' %>">Journal</a>
+      </li>
+      <li>
         <a href="<%= isAdmin ? '/admin' : '/admin/login' %>"
            class="nav__link<%= page === 'admin' ? ' nav__link--active' : '' %>">Admin</a>
       </li>

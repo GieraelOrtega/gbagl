@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const {
+  TABLES,
   createBackupService,
   scheduleBackups,
 } = require('../services/backup');
@@ -89,10 +90,54 @@ test('media traversal excludes backup archives and in-progress output names', as
     isDbAvailable: () => true,
     getPool: () => ({ query: async () => [[]] }),
   });
+
   const backup = await service.create();
   const archiveBytes = await fs.promises.readFile(backup.path);
   const archiveText = archiveBytes.toString('latin1');
 
   assert.match(archiveText, /media\/media\/photo\.txt/);
   assert.doesNotMatch(archiveText, /media\/media\/gbagl-backup-/);
+});
+
+test('backup exports every Layer 2 table from one consistent database snapshot', async (t) => {
+  const backupDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'gbagl-snapshot-'));
+  t.after(() => fs.promises.rm(backupDir, { force: true, recursive: true }));
+  const calls = [];
+  const connection = {
+    query: async (sql) => {
+      calls.push(sql);
+      return sql.startsWith('SELECT') ? [[{ table: sql }]] : [[]];
+    },
+    commit: async () => calls.push('COMMIT'),
+    rollback: async () => calls.push('ROLLBACK'),
+    release: () => calls.push('RELEASE'),
+  };
+  const service = createBackupService({
+    backupDir,
+    backupMediaPaths: [],
+    backupRetention: 7,
+  }, {
+    isDbAvailable: () => true,
+    getPool: () => ({ getConnection: async () => connection }),
+  });
+
+  await service.create();
+  assert.deepEqual(TABLES, [
+    'date_ideas',
+    'site_settings',
+    'timeline_milestones',
+    'bucket_items',
+    'bucket_votes',
+    'shared_events',
+    'photo_albums',
+    'album_photos',
+    'journal_entries',
+  ]);
+  assert.equal(calls[0], 'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+  assert.equal(calls[1], 'START TRANSACTION WITH CONSISTENT SNAPSHOT');
+  assert.equal(calls.filter((sql) => String(sql).startsWith('SELECT')).length, TABLES.length);
+  assert.ok(calls.indexOf('COMMIT') > calls.findLastIndex(
+    (sql) => String(sql).startsWith('SELECT'),
+  ));
+  assert.equal(calls.at(-1), 'RELEASE');
 });

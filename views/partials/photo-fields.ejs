@@ -1,0 +1,34 @@
+<div class="admin-grid">
+  <div class="form-group">
+    <label class="form-label" for="<%= prefix %>-album">Album</label>
+    <select class="form-select" id="<%= prefix %>-album" name="album_id" required>
+      <% albums.forEach((albumOption) => { %>
+        <option value="<%= albumOption.id %>" <%= photo.album_id === albumOption.id ? 'selected' : '' %>><%= albumOption.title %></option>
+      <% }) %>
+    </select>
+  </div>
+  <div class="form-group">
+    <label class="form-label" for="<%= prefix %>-milestone">Timeline milestone</label>
+    <select class="form-select" id="<%= prefix %>-milestone" name="milestone_id">
+      <option value="">None</option>
+      <% milestones.forEach((milestone) => { %>
+        <option value="<%= milestone.id %>" <%= photo.milestone_id === milestone.id ? 'selected' : '' %>><%= milestone.title %></option>
+      <% }) %>
+    </select>
+  </div>
+  <div class="form-group">
+    <label class="form-label" for="<%= prefix %>-date">Photo date</label>
+    <input class="form-input" id="<%= prefix %>-date" name="photo_date" type="date"
+           value="<%= photo.photo_date || '' %>" />
+  </div>
+  <div class="form-group">
+    <label class="form-label" for="<%= prefix %>-order">Display order</label>
+    <input class="form-input" id="<%= prefix %>-order" name="display_order" type="number"
+           min="0" max="100000" value="<%= photo.display_order || 0 %>" required />
+  </div>
+</div>
+<div class="form-group">
+  <label class="form-label" for="<%= prefix %>-caption">Caption</label>
+  <textarea class="form-textarea" id="<%= prefix %>-caption" name="caption"
+            maxlength="1000"><%= photo.caption || '' %></textarea>
+</div>

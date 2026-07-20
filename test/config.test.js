@@ -1,6 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { MAX_BACKUP_INTERVAL_HOURS, loadConfig } = require('../config');
+const {
+  MAX_BACKUP_INTERVAL_HOURS,
+  MAX_UPLOAD_BYTES,
+  loadConfig,
+} = require('../config');
 
 test('configuration requires developer-provided authentication values', () => {
   assert.throws(() => loadConfig({}), /SITE_PASSCODE is required/);
@@ -39,6 +43,14 @@ test('backup storage cannot be placed under public static files', () => {
     ADMIN_PASSWORD: 'local-admin',
     BACKUP_DIR: 'public/backups',
   }), /outside public/);
+  if (process.platform === 'win32') {
+    assert.throws(() => loadConfig({
+      SITE_PASSCODE: '8462',
+      COOKIE_SECRET: 'abcdefghijklmnop',
+      ADMIN_PASSWORD: 'local-admin',
+      UPLOAD_DIR: 'PUBLIC/uploads',
+    }), /outside public/);
+  }
 });
 
 test('site passcode must match the four-digit lock UI', () => {
@@ -96,4 +108,29 @@ test('backup media and output directories cannot overlap in either direction', (
     BACKUP_DIR: 'runtime/backups',
     BACKUP_MEDIA_PATHS: 'runtime/uploads',
   }));
+});
+
+test('custom upload directories are automatically covered by backup media paths', () => {
+  const config = loadConfig({
+    SITE_PASSCODE: '8462',
+    COOKIE_SECRET: 'abcdefghijklmnop',
+    ADMIN_PASSWORD: 'local-admin',
+    UPLOAD_DIR: 'private-media/photos',
+    BACKUP_MEDIA_PATHS: 'public/images',
+  });
+
+  assert.ok(config.backupMediaPaths.includes(config.uploadDir));
+});
+
+test('protected upload size remains strictly capped', () => {
+  const base = {
+    SITE_PASSCODE: '8462',
+    COOKIE_SECRET: 'abcdefghijklmnop',
+    ADMIN_PASSWORD: 'local-admin',
+  };
+  assert.equal(loadConfig(base).uploadMaxBytes, 8 * 1024 * 1024);
+  assert.throws(
+    () => loadConfig({ ...base, UPLOAD_MAX_BYTES: String(MAX_UPLOAD_BYTES + 1) }),
+    /must not exceed/,
+  );
 });

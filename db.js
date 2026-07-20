@@ -27,6 +27,8 @@ async function initDb() {
       database: process.env.DB_NAME     || 'gbagl',
       waitForConnections: true,
       connectionLimit: 10,
+      timezone: 'Z',
+      dateStrings: true,
       // Reconnect automatically if the DB drops briefly
       enableKeepAlive: true,
       keepAliveInitialDelay: 30000,
@@ -68,6 +70,95 @@ async function initDb() {
         updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX timeline_display_order (display_order, id)
       )
+    `);
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS bucket_items (
+        id              INT AUTO_INCREMENT PRIMARY KEY,
+        title           VARCHAR(150) NOT NULL,
+        description     TEXT NOT NULL,
+        category        ENUM('travel', 'experience', 'food', 'home', 'growth', 'other')
+                        NOT NULL DEFAULT 'other',
+        target_date     DATE,
+        is_favorite     BOOLEAN NOT NULL DEFAULT FALSE,
+        completed_at    DATE,
+        memory          TEXT,
+        created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX bucket_status_target (completed_at, target_date)
+      ) ENGINE=InnoDB
+    `);
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS bucket_votes (
+        item_id         INT NOT NULL,
+        voter_slot      ENUM('partner_one', 'partner_two') NOT NULL,
+        vote            ENUM('yes', 'maybe', 'not_yet') NOT NULL,
+        updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (item_id, voter_slot),
+        CONSTRAINT bucket_votes_item_fk FOREIGN KEY (item_id)
+          REFERENCES bucket_items(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB
+    `);
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS shared_events (
+        id                  INT AUTO_INCREMENT PRIMARY KEY,
+        title               VARCHAR(150) NOT NULL,
+        event_at            DATETIME NOT NULL,
+        reminder_at         DATETIME,
+        notes               TEXT,
+        is_completed        BOOLEAN NOT NULL DEFAULT FALSE,
+        reminder_dismissed  BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX events_time (event_at),
+        INDEX reminders_due (reminder_at, reminder_dismissed)
+      ) ENGINE=InnoDB
+    `);
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS photo_albums (
+        id              INT AUTO_INCREMENT PRIMARY KEY,
+        title           VARCHAR(150) NOT NULL,
+        description     TEXT NOT NULL,
+        album_date      DATE,
+        display_order   INT NOT NULL DEFAULT 0,
+        created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX albums_order (display_order, album_date, id)
+      ) ENGINE=InnoDB
+    `);
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS album_photos (
+        id              INT AUTO_INCREMENT PRIMARY KEY,
+        album_id        INT NOT NULL,
+        milestone_id    INT,
+        caption         VARCHAR(1000),
+        photo_date      DATE,
+        display_order   INT NOT NULL DEFAULT 0,
+        storage_type    ENUM('upload', 'existing') NOT NULL,
+        storage_name    VARCHAR(255) NOT NULL,
+        media_type      ENUM('image/jpeg', 'image/png', 'image/webp') NOT NULL,
+        created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX photos_album_order (album_id, display_order, id),
+        CONSTRAINT album_photos_album_fk FOREIGN KEY (album_id)
+          REFERENCES photo_albums(id) ON DELETE CASCADE,
+        CONSTRAINT album_photos_milestone_fk FOREIGN KEY (milestone_id)
+          REFERENCES timeline_milestones(id) ON DELETE SET NULL
+      ) ENGINE=InnoDB
+    `);
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS journal_entries (
+        id              INT AUTO_INCREMENT PRIMARY KEY,
+        milestone_id    INT,
+        title           VARCHAR(150) NOT NULL,
+        body            TEXT NOT NULL,
+        entry_date      DATE NOT NULL,
+        created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX journal_date (entry_date, id),
+        INDEX journal_milestone (milestone_id),
+        CONSTRAINT journal_milestone_fk FOREIGN KEY (milestone_id)
+          REFERENCES timeline_milestones(id) ON DELETE SET NULL
+      ) ENGINE=InnoDB
     `);
 
     await pool.execute(`

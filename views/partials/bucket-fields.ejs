@@ -1,0 +1,25 @@
+<div class="admin-grid">
+  <div class="form-group">
+    <label class="form-label" for="<%= prefix %>-title">Title</label>
+    <input class="form-input" id="<%= prefix %>-title" name="title" maxlength="150"
+           value="<%= item.title || '' %>" required />
+  </div>
+  <div class="form-group">
+    <label class="form-label" for="<%= prefix %>-category">Category</label>
+    <select class="form-select" id="<%= prefix %>-category" name="category" required>
+      <% ['travel', 'experience', 'food', 'home', 'growth', 'other'].forEach((category) => { %>
+        <option value="<%= category %>" <%= item.category === category ? 'selected' : '' %>><%= category %></option>
+      <% }) %>
+    </select>
+  </div>
+  <div class="form-group">
+    <label class="form-label" for="<%= prefix %>-target">Target date</label>
+    <input class="form-input" id="<%= prefix %>-target" name="target_date" type="date"
+           value="<%= item.target_date || '' %>" />
+  </div>
+</div>
+<div class="form-group">
+  <label class="form-label" for="<%= prefix %>-description">Description</label>
+  <textarea class="form-textarea" id="<%= prefix %>-description" name="description"
+            maxlength="4000" required><%= item.description || '' %></textarea>
+</div>

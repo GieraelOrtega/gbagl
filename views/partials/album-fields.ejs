@@ -1,0 +1,22 @@
+<div class="admin-grid">
+  <div class="form-group">
+    <label class="form-label" for="<%= prefix %>-title">Title</label>
+    <input class="form-input" id="<%= prefix %>-title" name="title" maxlength="150"
+           value="<%= album.title || '' %>" required />
+  </div>
+  <div class="form-group">
+    <label class="form-label" for="<%= prefix %>-date">Album date</label>
+    <input class="form-input" id="<%= prefix %>-date" name="album_date" type="date"
+           value="<%= album.album_date || '' %>" />
+  </div>
+  <div class="form-group">
+    <label class="form-label" for="<%= prefix %>-order">Display order</label>
+    <input class="form-input" id="<%= prefix %>-order" name="display_order" type="number"
+           min="0" max="100000" value="<%= album.display_order || 0 %>" required />
+  </div>
+</div>
+<div class="form-group">
+  <label class="form-label" for="<%= prefix %>-description">Description</label>
+  <textarea class="form-textarea" id="<%= prefix %>-description" name="description"
+            maxlength="4000" required><%= album.description || '' %></textarea>
+</div>

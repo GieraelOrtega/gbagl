@@ -7,6 +7,7 @@ const {
   positiveId,
   validateSettings,
 } = require('../lib/validation');
+const { validateEvent } = require('../lib/hubValidation');
 const { backupFilename, resolveBackupPath } = require('../services/backup');
 
 test('admin validation accepts safe values and rejects traversal or unsafe URLs', () => {
@@ -29,6 +30,16 @@ test('admin validation accepts safe values and rejects traversal or unsafe URLs'
     anniversary_date: '2025-07-19',
     timezone: 'America/Los_Angeles',
   });
+
+});
+
+test('event validation rejects reminders scheduled after an event', () => {
+  assert.throws(() => validateEvent({
+    title: 'Dinner',
+    event_at: '2026-07-19T18:00',
+    reminder_at: '2026-07-19T19:00',
+    notes: '',
+  }), /must not be after/);
 });
 
 test('backup names are allowlisted and stay inside the backup directory', () => {
