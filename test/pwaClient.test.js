@@ -19,6 +19,7 @@ function createClientHarness(deleteImpl) {
   const formListeners = new Map();
   const messages = [];
   const storage = new Map([['gbagl-reminder-7', 'seen']]);
+  let submissions = 0;
   const form = {
     addEventListener(type, listener) {
       formListeners.set(type, listener);
@@ -68,11 +69,15 @@ function createClientHarness(deleteImpl) {
   const context = vm.createContext({
     console: { error() {}, warn() {} },
     document,
+    HTMLFormElement: function HTMLFormElement() {},
     localStorage,
     navigator: { onLine: true, serviceWorker },
     Promise,
     window,
   });
+  context.HTMLFormElement.prototype.submit = () => {
+    submissions += 1;
+  };
   const source = fs.readFileSync(
     path.join(__dirname, '..', 'public', 'js', 'pwa.js'),
     'utf8',
@@ -83,6 +88,7 @@ function createClientHarness(deleteImpl) {
     lockSubmit: formListeners.get('submit'),
     messages,
     storage,
+    submissions: () => submissions,
   };
 }
 
@@ -93,9 +99,10 @@ test('Lock Now submits and signals revocation without waiting for hanging cache 
 
   harness.lockSubmit({ preventDefault: () => { prevented = true; } });
 
-  assert.equal(prevented, false);
+  assert.equal(prevented, true);
   assert.equal(harness.messages[0].type, 'CLEAR_PRIVATE_DATA');
   assert.equal(harness.storage.has('gbagl-reminder-7'), false);
+  assert.equal(harness.submissions(), 1);
   deletion.resolve(true);
 });
 
@@ -108,7 +115,8 @@ test('Lock Now submission is not blocked when cache deletion rejects', async () 
   harness.lockSubmit({ preventDefault: () => { prevented = true; } });
   await Promise.resolve();
 
-  assert.equal(prevented, false);
+  assert.equal(prevented, true);
   assert.equal(harness.messages[0].type, 'CLEAR_PRIVATE_DATA');
   assert.equal(harness.storage.has('gbagl-reminder-7'), false);
+  assert.equal(harness.submissions(), 1);
 });

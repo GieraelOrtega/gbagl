@@ -135,10 +135,17 @@
       });
     });
     document.querySelectorAll('form[action="/lock"]').forEach((form) => {
-      form.addEventListener('submit', () => {
-        void clearPrivateData().catch((error) => {
+      form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        try {
+          void clearPrivateData().catch((error) => {
+            console.error('GBAGL private cache clearing failed:', error);
+          });
+        } catch (error) {
           console.error('GBAGL private cache clearing failed:', error);
-        });
+        } finally {
+          HTMLFormElement.prototype.submit.call(form);
+        }
       });
     });
   });
