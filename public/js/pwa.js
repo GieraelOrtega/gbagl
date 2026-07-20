@@ -1,14 +1,24 @@
 (function initializePwa() {
   let deferredInstallPrompt = null;
+  let wasReadOnly = false;
 
   function installButtons() {
     return document.querySelectorAll('[data-install-app]');
+  }
+
+  function updatePwaControls() {
+    document.querySelectorAll('[data-pwa-controls]').forEach((controls) => {
+      controls.hidden = !controls.querySelector(
+        '[data-install-app]:not([hidden]), [data-network-status]:not([hidden])',
+      );
+    });
   }
 
   function setInstallVisible(visible) {
     installButtons().forEach((button) => {
       button.hidden = !visible;
     });
+    updatePwaControls();
   }
 
   function clearReminderDedupe() {
@@ -66,10 +76,22 @@
   }
 
   function updateNetworkStatus() {
+    const readOnly = !navigator.onLine
+      || document.body.hasAttribute('data-offline-snapshot');
+    const message = 'Offline · read-only copies';
     document.querySelectorAll('[data-network-status]').forEach((status) => {
-      status.textContent = navigator.onLine ? 'Online' : 'Offline · read-only copies';
-      status.classList.toggle('network-status--offline', !navigator.onLine);
+      status.textContent = readOnly ? message : '';
+      status.hidden = !readOnly;
+      status.classList.toggle('network-status--offline', readOnly);
     });
+    document.querySelectorAll('[data-network-status-container]').forEach((container) => {
+      container.hidden = !readOnly;
+    });
+    document.querySelectorAll('[data-network-status-announcer]').forEach((announcer) => {
+      announcer.textContent = readOnly ? message : (wasReadOnly ? 'Online' : '');
+    });
+    wasReadOnly = readOnly;
+    updatePwaControls();
     document.querySelectorAll(
       'form[method="post"]:not([action="/lock"]), form[method="POST"]:not([action="/lock"])',
     ).forEach((form) => {

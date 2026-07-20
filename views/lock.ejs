@@ -21,7 +21,6 @@
       </div>
       <p class="passcode__eyebrow">GBAGL</p>
       <h1 class="passcode__title" id="passcode-title">Enter Passcode</h1>
-      <p class="passcode__hint">This little corner of the internet is private.</p>
 
       <form class="passcode__form<%= error ? ' passcode__form--error' : '' %>"
             action="/unlock" method="post" id="passcodeForm">
@@ -56,10 +55,11 @@
 
         <button class="passcode__submit" type="submit">Unlock</button>
       </form>
-      <div class="pwa-controls">
+      <div class="pwa-controls" data-pwa-controls hidden>
         <button type="button" class="passcode__install" data-install-app hidden>Install GBAGL</button>
-        <span class="network-status network-status--dark" data-network-status>Online</span>
+        <span class="network-status network-status--dark" data-network-status hidden></span>
       </div>
+      <span class="visually-hidden" data-network-status-announcer role="status" aria-live="polite" aria-atomic="true"></span>
     </section>
   </main>
   <script src="/js/lock.js"></script>
