@@ -11,19 +11,19 @@ const {
   isDbAvailable,
 } = require('../db');
 
-async function loadMilestones({
+async function loadMilestonesResult({
   databaseAvailable = isDbAvailable,
   databasePool = getPool,
   fallback = fallbackMilestones,
 } = {}) {
-  if (!databaseAvailable()) return fallback;
+  if (!databaseAvailable()) return { milestones: fallback, degraded: true };
   try {
     const pool = databasePool();
     const [rows] = await pool.execute(
       `SELECT id, milestone_date AS date, title, description, emoji, photo, link_url
        FROM timeline_milestones ORDER BY display_order, id`,
     );
-    if (rows.length > 0) return rows;
+    if (rows.length > 0) return { milestones: rows, degraded: false };
 
     const [markerRows] = await pool.execute(
       `SELECT setting_value FROM site_settings
@@ -32,17 +32,24 @@ async function loadMilestones({
     );
     if (markerRows[0]?.setting_value !== 'complete') {
       console.error('Timeline import is incomplete; using file fallback.');
-      return fallback;
+      return { milestones: fallback, degraded: true };
     }
-    return rows;
+    return { milestones: rows, degraded: false };
   } catch (error) {
     console.error('Timeline database load failed; using file fallback:', error.message);
-    return fallback;
+    return { milestones: fallback, degraded: true };
   }
 }
 
+async function loadMilestones(dependencies = {}) {
+  return (await loadMilestonesResult(dependencies)).milestones;
+}
+
 router.get('/', async (req, res) => {
-  const milestones = await loadMilestones();
+  const {
+    milestones,
+    degraded: timelineDegraded,
+  } = await loadMilestonesResult();
   let journals = [];
   let journalError = null;
   if (!isDbAvailable()) {
@@ -60,6 +67,7 @@ router.get('/', async (req, res) => {
       journalError = 'Linked journal entries could not be loaded.';
     }
   }
+  if (!journalError && !timelineDegraded) res.allowPrivateSnapshot?.();
   res.render('timeline', {
     title:      'Our Timeline — GBAGL',
     page:       'timeline',
@@ -71,3 +79,4 @@ router.get('/', async (req, res) => {
 
 module.exports = router;
 module.exports.loadMilestones = loadMilestones;
+module.exports.loadMilestonesResult = loadMilestonesResult;

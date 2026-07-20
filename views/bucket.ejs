@@ -18,16 +18,16 @@
               <% if (item.is_favorite) { %><span aria-label="Favorite">★</span><% } %>
               <h2 class="card__title"><%= item.title %></h2>
             </div>
-            <form action="/bucket/<%= item.id %>/favorite" method="post">
+            <% if (!offlineSnapshot) { %><form action="/bucket/<%= item.id %>/favorite" method="post">
               <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
               <button class="btn btn--outline" type="submit"><%= item.is_favorite ? 'Unfavorite' : 'Favorite' %></button>
-            </form>
+            </form><% } %>
           </header>
           <p><%= item.description %></p>
           <% if (item.target_date) { %><p><strong>Target:</strong> <%= item.target_date %></p><% } %>
           <div class="vote-grid">
             <% ['partner_one', 'partner_two'].forEach((slot) => { %>
-              <form action="/bucket/<%= item.id %>/vote" method="post" class="compact-form">
+              <% if (!offlineSnapshot) { %><form action="/bucket/<%= item.id %>/vote" method="post" class="compact-form">
                 <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
                 <input type="hidden" name="voter_slot" value="<%= slot %>" />
                 <label class="form-label" for="vote-<%= item.id %>-<%= slot %>"><%= labels[slot] %></label>
@@ -38,10 +38,12 @@
                 </select>
                 <button class="btn btn--outline" type="submit">Save vote</button>
                 <% if (item[`${slot}_vote`]) { %><small>Choose the same vote again to remove it.</small><% } %>
-              </form>
+              </form><% } else { %>
+                <p><strong><%= labels[slot] %>:</strong> <%= item[`${slot}_vote`]?.replace('_', ' ') || 'No vote' %></p>
+              <% } %>
             <% }) %>
           </div>
-          <form action="/bucket/<%= item.id %>/completion" method="post" class="compact-form">
+          <% if (!offlineSnapshot) { %><form action="/bucket/<%= item.id %>/completion" method="post" class="compact-form">
             <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
             <% if (item.completed_at) { %>
               <input type="hidden" name="completed" value="0" />
@@ -53,15 +55,19 @@
               <input class="form-input" id="complete-<%= item.id %>" name="completed_at" type="date" required />
               <button class="btn btn--primary" type="submit">Mark complete</button>
             <% } %>
-          </form>
+          </form><% } else if (item.completed_at) { %>
+            <p><strong>Completed:</strong> <%= item.completed_at %></p>
+          <% } %>
           <% if (item.completed_at) { %>
-            <form action="/bucket/<%= item.id %>/memory" method="post" class="compact-form">
+            <% if (!offlineSnapshot) { %><form action="/bucket/<%= item.id %>/memory" method="post" class="compact-form">
               <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
               <label class="form-label" for="memory-<%= item.id %>">Memory or reflection</label>
               <textarea class="form-textarea" id="memory-<%= item.id %>" name="memory"
                         maxlength="8000"><%= item.memory || '' %></textarea>
               <button class="btn btn--primary" type="submit">Save memory</button>
-            </form>
+            </form><% } else if (item.memory) { %>
+              <p class="preserve-lines"><strong>Memory:</strong><br /><%= item.memory %></p>
+            <% } %>
           <% } %>
         </article>
       <% }) %>

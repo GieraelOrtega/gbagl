@@ -376,6 +376,34 @@ h1, h2, h3, h4 {
   padding: var(--space-xs) 0;
 }
 .nav__button:hover { color: var(--color-primary); border-bottom-color: var(--color-primary); }
+.network-status {
+  display: inline-block;
+  color: var(--color-success-text);
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.network-status--offline { color: var(--color-warning-text); }
+.network-status--dark { color: rgba(255, 255, 255, 0.72); }
+.pwa-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-md);
+  margin-top: var(--space-lg);
+}
+.passcode__install {
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  padding: 0.55rem 1rem;
+}
+.offline-disabled {
+  opacity: 0.58;
+  pointer-events: none;
+}
 
 /* Hamburger (mobile) */
 .nav__toggle {

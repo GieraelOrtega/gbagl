@@ -4,10 +4,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="robots" content="noindex, nofollow" />
+  <meta name="theme-color" content="#412b47" />
   <title><%= title %></title>
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
   <link rel="stylesheet" href="/css/style.css" />
 </head>
-<body class="lock-screen">
+<body class="lock-screen" data-locked-state>
   <main class="lock-screen__main">
     <div class="lock-screen__glow" aria-hidden="true"></div>
 
@@ -52,8 +56,13 @@
 
         <button class="passcode__submit" type="submit">Unlock</button>
       </form>
+      <div class="pwa-controls">
+        <button type="button" class="passcode__install" data-install-app hidden>Install GBAGL</button>
+        <span class="network-status network-status--dark" data-network-status>Online</span>
+      </div>
     </section>
   </main>
   <script src="/js/lock.js"></script>
+  <script src="/js/pwa.js"></script>
 </body>
 </html>

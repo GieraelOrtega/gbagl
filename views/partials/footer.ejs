@@ -3,8 +3,9 @@
       <p class="footer__text">Made with 💕 for us &nbsp;·&nbsp; GBAGL — <em>Gunna Be a Great Life</em></p>
     </div>
   </footer>
-  <script src="/js/main.js"></script>
-  <% if (page === 'reminders') { %>
+  <% if (!offlineSnapshot) { %><script src="/js/main.js"></script><% } %>
+  <script src="/js/pwa.js"></script>
+  <% if (page === 'reminders' && !offlineSnapshot) { %>
     <script src="/js/reminderFormat.js"></script>
     <script src="/js/reminders.js"></script>
   <% } %>

@@ -4,7 +4,7 @@ const {
   TIMELINE_IMPORT_MARKER,
   importTimelineOnce,
 } = require('../db');
-const { loadMilestones } = require('../routes/timeline');
+const { loadMilestones, loadMilestonesResult } = require('../routes/timeline');
 
 function createFakePool(initialMilestones = []) {
   const state = {
@@ -140,4 +140,13 @@ test('timeline query errors use file fallback', async () => {
     databasePool: () => ({ execute: async () => { throw new Error('offline'); } }),
     fallback,
   }), fallback);
+});
+
+test('timeline fallback is marked degraded so it cannot replace an offline snapshot', async () => {
+  const fallback = [{ title: 'File fallback' }];
+  assert.deepEqual(await loadMilestonesResult({
+    databaseAvailable: () => true,
+    databasePool: () => ({ execute: async () => { throw new Error('offline'); } }),
+    fallback,
+  }), { milestones: fallback, degraded: true });
 });

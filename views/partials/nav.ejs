@@ -8,9 +8,9 @@
       <li>
         <a href="/" class="nav__link<%= page === 'home'      ? ' nav__link--active' : '' %>">Home</a>
       </li>
-      <li>
+      <% if (!offlineSnapshot) { %><li>
         <a href="/adventure" class="nav__link<%= page === 'adventure' ? ' nav__link--active' : '' %>">✨ Adventure</a>
-      </li>
+      </li><% } %>
       <li>
         <a href="/timeline"  class="nav__link<%= page === 'timeline'  ? ' nav__link--active' : '' %>">📖 Timeline</a>
       </li>
@@ -26,16 +26,18 @@
       <li>
         <a href="/journal" class="nav__link<%= page === 'journal' ? ' nav__link--active' : '' %>">Journal</a>
       </li>
-      <li>
+      <% if (!offlineSnapshot) { %><li>
         <a href="<%= isAdmin ? '/admin' : '/admin/login' %>"
            class="nav__link<%= page === 'admin' ? ' nav__link--active' : '' %>">Admin</a>
-      </li>
-      <li>
+      </li><% } %>
+      <% if (!offlineSnapshot) { %><li>
         <form action="/lock" method="post" class="nav__form">
           <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-          <button type="submit" class="nav__button">Lock</button>
+          <button type="submit" class="nav__button">Lock Now</button>
         </form>
-      </li>
+      </li><% } %>
+      <li><button type="button" class="nav__button" data-install-app hidden>Install app</button></li>
+      <li><span class="network-status" data-network-status><%= offlineSnapshot ? 'Offline · read-only copies' : 'Online' %></span></li>
     </ul>
   </div>
 </nav>
