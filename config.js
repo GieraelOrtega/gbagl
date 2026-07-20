@@ -1,5 +1,8 @@
 const path = require('path');
 
+const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
+const MAX_BACKUP_INTERVAL_HOURS = Math.floor(MAX_TIMER_DELAY_MS / (60 * 60 * 1000));
+
 function required(env, name, aliases = []) {
   const key = [name, ...aliases].find((candidate) => env[candidate]);
   const value = key ? env[key].trim() : '';
@@ -9,8 +12,9 @@ function required(env, name, aliases = []) {
 
 function positiveInteger(value, fallback, name) {
   if (value === undefined || value === '') return fallback;
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
+  const normalized = String(value);
+  const parsed = Number(normalized);
+  if (!/^\d+$/.test(normalized) || !Number.isSafeInteger(parsed) || parsed <= 0) {
     throw new Error(`${name} must be a positive integer`);
   }
   return parsed;
@@ -37,7 +41,9 @@ function loadConfig(env = process.env) {
   const cookieSecret = required(env, 'COOKIE_SECRET', ['PASSCODE_COOKIE_SECRET']);
   const adminPassword = required(env, 'ADMIN_PASSWORD', ['ADMIN_SECRET']);
 
-  assertMinimum(sitePasscode, 4, 'SITE_PASSCODE');
+  if (!/^\d{4}$/.test(sitePasscode)) {
+    throw new Error('SITE_PASSCODE must be exactly four digits');
+  }
   assertMinimum(cookieSecret, production ? 32 : 16, 'COOKIE_SECRET');
   assertMinimum(adminPassword, production ? 12 : 8, 'ADMIN_PASSWORD');
 
@@ -57,6 +63,17 @@ function loadConfig(env = process.env) {
     throw new Error('BACKUP_DIR must be outside public/');
   }
 
+  const backupIntervalHours = positiveInteger(
+    env.BACKUP_INTERVAL_HOURS,
+    24,
+    'BACKUP_INTERVAL_HOURS',
+  );
+  if (backupIntervalHours > MAX_BACKUP_INTERVAL_HOURS) {
+    throw new Error(
+      `BACKUP_INTERVAL_HOURS must not exceed ${MAX_BACKUP_INTERVAL_HOURS}`,
+    );
+  }
+
   return Object.freeze({
     production,
     port: positiveInteger(env.PORT, 3000, 'PORT'),
@@ -66,11 +83,7 @@ function loadConfig(env = process.env) {
     adminCookieHours: positiveInteger(env.ADMIN_COOKIE_HOURS, 12, 'ADMIN_COOKIE_HOURS'),
     backupDir,
     backupRetention: positiveInteger(env.BACKUP_RETENTION, 7, 'BACKUP_RETENTION'),
-    backupIntervalHours: positiveInteger(
-      env.BACKUP_INTERVAL_HOURS,
-      24,
-      'BACKUP_INTERVAL_HOURS',
-    ),
+    backupIntervalHours,
     backupMediaPaths: (env.BACKUP_MEDIA_PATHS || 'public/images,runtime/uploads')
       .split(',')
       .map((item) => item.trim())
@@ -79,4 +92,9 @@ function loadConfig(env = process.env) {
   });
 }
 
-module.exports = { loadConfig, positiveInteger };
+module.exports = {
+  MAX_BACKUP_INTERVAL_HOURS,
+  MAX_TIMER_DELAY_MS,
+  loadConfig,
+  positiveInteger,
+};

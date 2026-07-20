@@ -10,6 +10,7 @@ const mysql = require('mysql2/promise');
 // Track whether the DB is up so routes can degrade gracefully
 let pool = null;
 let dbAvailable = false;
+const TIMELINE_IMPORT_MARKER = 'timeline_import_complete';
 
 /**
  * initDb — call once at startup.
@@ -79,7 +80,7 @@ async function initDb() {
     `);
     dbAvailable = true;
     try {
-      await importTimelineIfEmpty();
+      await importTimelineOnce();
     } catch (error) {
       console.error('Timeline import failed; file fallback remains available:', error.message);
     }
@@ -93,18 +94,33 @@ async function initDb() {
 
 }
 
-async function importTimelineIfEmpty() {
-  const [rows] = await pool.execute('SELECT COUNT(*) AS count FROM timeline_milestones');
-  if (Number(rows[0].count) !== 0) return false;
-
-  const milestones = require('./data/timeline');
-  const connection = await pool.getConnection();
+async function importTimelineOnce(
+  databasePool = pool,
+  milestones = require('./data/timeline'),
+) {
+  const connection = await databasePool.getConnection();
   try {
     await connection.beginTransaction();
-    const [lockedRows] = await connection.execute(
-      'SELECT COUNT(*) AS count FROM timeline_milestones FOR UPDATE',
+    await connection.execute(
+      `INSERT IGNORE INTO site_settings (setting_key, setting_value)
+       VALUES (?, 'pending')`,
+      [TIMELINE_IMPORT_MARKER],
     );
-    if (Number(lockedRows[0].count) === 0) {
+    const [markerRows] = await connection.execute(
+      `SELECT setting_value FROM site_settings
+       WHERE setting_key = ? FOR UPDATE`,
+      [TIMELINE_IMPORT_MARKER],
+    );
+    if (markerRows[0]?.setting_value === 'complete') {
+      await connection.commit();
+      return false;
+    }
+
+    const [countRows] = await connection.execute(
+      'SELECT COUNT(*) AS count FROM timeline_milestones',
+    );
+    const shouldImport = Number(countRows[0].count) === 0;
+    if (shouldImport) {
       for (const [index, milestone] of milestones.entries()) {
         await connection.execute(
           `INSERT INTO timeline_milestones
@@ -121,9 +137,16 @@ async function importTimelineIfEmpty() {
         );
       }
     }
+    await connection.execute(
+      `UPDATE site_settings SET setting_value = 'complete'
+       WHERE setting_key = ?`,
+      [TIMELINE_IMPORT_MARKER],
+    );
     await connection.commit();
-    console.log(`Imported ${milestones.length} timeline milestones from data/timeline.js.`);
-    return true;
+    if (shouldImport) {
+      console.log(`Imported ${milestones.length} timeline milestones from data/timeline.js.`);
+    }
+    return shouldImport;
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -142,4 +165,10 @@ function isDbAvailable() {
   return dbAvailable;
 }
 
-module.exports = { initDb, getPool, importTimelineIfEmpty, isDbAvailable };
+module.exports = {
+  TIMELINE_IMPORT_MARKER,
+  getPool,
+  importTimelineOnce,
+  initDb,
+  isDbAvailable,
+};

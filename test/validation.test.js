@@ -33,9 +33,17 @@ test('admin validation accepts safe values and rejects traversal or unsafe URLs'
 
 test('backup names are allowlisted and stay inside the backup directory', () => {
   const root = path.resolve('runtime', 'backups-test');
-  const filename = backupFilename(new Date('2026-07-19T12:34:56.789Z'));
-  assert.equal(filename, 'gbagl-backup-2026-07-19T12-34-56.789Z.zip');
+  const filename = backupFilename(
+    new Date('2026-07-19T12:34:56.789Z'),
+    '012345abcdef',
+  );
+  assert.equal(filename, 'gbagl-backup-2026-07-19T12-34-56.789Z-012345abcdef.zip');
   assert.equal(resolveBackupPath(root, filename), path.join(root, filename));
+  const legacyFilename = 'gbagl-backup-2026-07-19T12-34-56.789Z.zip';
+  assert.equal(
+    resolveBackupPath(root, legacyFilename),
+    path.join(root, legacyFilename),
+  );
   assert.throws(() => resolveBackupPath(root, '../secrets.zip'), /Invalid backup/);
   assert.throws(() => resolveBackupPath(root, 'not-a-backup.zip'), /Invalid backup/);
 });

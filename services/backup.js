@@ -1,14 +1,19 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const archiver = require('archiver');
 const { getPool, isDbAvailable } = require('../db');
+const {
+  MAX_BACKUP_INTERVAL_HOURS,
+  MAX_TIMER_DELAY_MS,
+} = require('../config');
 
-const BACKUP_PATTERN = /^gbagl-backup-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z\.zip$/;
+const BACKUP_PATTERN = /^gbagl-backup-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z(?:-[a-f0-9]{12})?\.zip$/;
 const TABLES = ['date_ideas', 'site_settings', 'timeline_milestones'];
 const SCHEMA_VERSION = 1;
 
-function backupFilename(date = new Date()) {
-  return `gbagl-backup-${date.toISOString().replace(/:/g, '-')}.zip`;
+function backupFilename(date = new Date(), suffix = crypto.randomBytes(6).toString('hex')) {
+  return `gbagl-backup-${date.toISOString().replace(/:/g, '-')}-${suffix}.zip`;
 }
 
 function resolveBackupPath(backupDir, filename) {
@@ -21,7 +26,11 @@ function resolveBackupPath(backupDir, filename) {
   return target;
 }
 
-function createBackupService(config) {
+function createBackupService(config, dependencies = {}) {
+  const databaseAvailable = dependencies.isDbAvailable || isDbAvailable;
+  const databasePool = dependencies.getPool || getPool;
+  let creationQueue = Promise.resolve();
+
   async function list() {
     await fs.promises.mkdir(config.backupDir, { recursive: true });
     const entries = await fs.promises.readdir(config.backupDir, { withFileTypes: true });
@@ -42,17 +51,17 @@ function createBackupService(config) {
     }
   }
 
-  async function create() {
-    if (!isDbAvailable()) throw new Error('Database is unavailable; backup was not created');
+  async function createOne() {
+    if (!databaseAvailable()) throw new Error('Database is unavailable; backup was not created');
     await fs.promises.mkdir(config.backupDir, { recursive: true });
 
     const createdAt = new Date();
     const filename = backupFilename(createdAt);
     const finalPath = resolveBackupPath(config.backupDir, filename);
-    const temporaryPath = `${finalPath}.tmp`;
+    const temporaryPath = `${finalPath}.${crypto.randomUUID()}.tmp`;
     const tableData = {};
     for (const table of TABLES) {
-      const [rows] = await getPool().query(`SELECT * FROM \`${table}\``);
+      const [rows] = await databasePool().query(`SELECT * FROM \`${table}\``);
       tableData[table] = rows;
     }
 
@@ -86,7 +95,6 @@ function createBackupService(config) {
       await fs.promises.rename(temporaryPath, finalPath);
     } catch (error) {
       await fs.promises.rm(temporaryPath, { force: true });
-      await fs.promises.rm(finalPath, { force: true });
       throw error;
     }
 
@@ -98,6 +106,12 @@ function createBackupService(config) {
     return { filename, path: finalPath };
   }
 
+  function create() {
+    const operation = creationQueue.then(createOne, createOne);
+    creationQueue = operation.catch(() => {});
+    return operation;
+  }
+
   function downloadPath(filename) {
     return resolveBackupPath(config.backupDir, filename);
   }
@@ -106,6 +120,16 @@ function createBackupService(config) {
 }
 
 function scheduleBackups(service, intervalHours) {
+  const intervalMs = intervalHours * 60 * 60 * 1000;
+  if (
+    !Number.isInteger(intervalHours)
+    || intervalHours <= 0
+    || intervalMs > MAX_TIMER_DELAY_MS
+  ) {
+    throw new Error(
+      `Backup interval must be an integer from 1 to ${MAX_BACKUP_INTERVAL_HOURS} hours`,
+    );
+  }
   const run = async () => {
     try {
       const backup = await service.create();
@@ -115,7 +139,7 @@ function scheduleBackups(service, intervalHours) {
     }
   };
   run();
-  const timer = setInterval(run, intervalHours * 60 * 60 * 1000);
+  const timer = setInterval(run, intervalMs);
   timer.unref();
   return timer;
 }

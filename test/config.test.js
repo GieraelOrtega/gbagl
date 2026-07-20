@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { loadConfig } = require('../config');
+const { MAX_BACKUP_INTERVAL_HOURS, loadConfig } = require('../config');
 
 test('configuration requires developer-provided authentication values', () => {
   assert.throws(() => loadConfig({}), /SITE_PASSCODE is required/);
@@ -39,4 +39,38 @@ test('backup storage cannot be placed under public static files', () => {
     ADMIN_PASSWORD: 'local-admin',
     BACKUP_DIR: 'public/backups',
   }), /outside public/);
+});
+
+test('site passcode must match the four-digit lock UI', () => {
+  const base = {
+    COOKIE_SECRET: 'abcdefghijklmnop',
+    ADMIN_PASSWORD: 'local-admin',
+  };
+  assert.equal(loadConfig({ ...base, SITE_PASSCODE: '0123' }).sitePasscode, '0123');
+  for (const invalid of ['123', '12345', 'abcd', '12 3']) {
+    assert.throws(
+      () => loadConfig({ ...base, SITE_PASSCODE: invalid }),
+      /exactly four digits/,
+    );
+  }
+});
+
+test('backup interval accepts the timer boundary and rejects overflow', () => {
+  const base = {
+    SITE_PASSCODE: '8462',
+    COOKIE_SECRET: 'abcdefghijklmnop',
+    ADMIN_PASSWORD: 'local-admin',
+  };
+  assert.equal(loadConfig({
+    ...base,
+    BACKUP_INTERVAL_HOURS: String(MAX_BACKUP_INTERVAL_HOURS),
+  }).backupIntervalHours, MAX_BACKUP_INTERVAL_HOURS);
+  assert.throws(() => loadConfig({
+    ...base,
+    BACKUP_INTERVAL_HOURS: String(MAX_BACKUP_INTERVAL_HOURS + 1),
+  }), new RegExp(`must not exceed ${MAX_BACKUP_INTERVAL_HOURS}`));
+  assert.throws(() => loadConfig({
+    ...base,
+    BACKUP_INTERVAL_HOURS: '24hours',
+  }), /must be a positive integer/);
 });

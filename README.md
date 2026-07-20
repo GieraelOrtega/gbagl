@@ -28,11 +28,11 @@ COOKIE_SECRET=<your-stable-random-signing-secret>
 
 Production startup fails clearly unless all of the following are present and sufficiently strong:
 
-- `SITE_PASSCODE`
+- `SITE_PASSCODE`, exactly four digits
 - `ADMIN_PASSWORD` (or the legacy `ADMIN_SECRET` alias), at least 12 characters
 - `COOKIE_SECRET` (or the legacy `PASSCODE_COOKIE_SECRET` alias), at least 32 characters
 
-The site passcode and admin password must be different. Authentication comparisons are timing-safe. Cookies are signed, `HttpOnly`, `Secure` in production, and `SameSite=Strict`.
+The site passcode and admin password must be different. `BACKUP_INTERVAL_HOURS` must be between 1 and 596 so it remains within Node's safe timer range. Authentication comparisons are timing-safe. Cookies are signed, `HttpOnly`, `Secure` in production, and `SameSite=Strict`.
 
 The site lock protects all content and static media. `POST /lock` clears both site and admin authentication; it intentionally uses POST because locking changes authentication state. Admin access requires a second sign-in at `/admin/login`; unlocking the site never grants admin access. Login attempts are rate-limited.
 
@@ -46,7 +46,7 @@ Configure `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, and `DB_NAME`. On star
 - `site_settings`
 - `timeline_milestones`
 
-If `timeline_milestones` is empty, startup imports the current `data/timeline.js` array once. This preserves deployment-only customized timeline data: a deployment can merge this code and its private `data/timeline.js`, then initialize that exact data without copying it into GitHub. Once rows exist, startup never overwrites them.
+On the first migration, startup imports the current `data/timeline.js` array if `timeline_milestones` is empty, then records a durable completion marker in `site_settings`. This preserves deployment-only customized timeline data: a deployment can merge this code and its private `data/timeline.js`, then initialize that exact data without copying it into GitHub. Once migration completes, startup never reimports, even when an admin intentionally deletes every milestone.
 
 The timeline reads ordered database milestones and falls back to `data/timeline.js` if MySQL is unavailable. The admin dashboard manages partner display names, anniversary date, timezone, timeline milestones, and existing date ideas. SQL writes are parameterized and inputs are validated server-side.
 
