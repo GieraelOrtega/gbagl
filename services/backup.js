@@ -10,6 +10,10 @@ const {
 } = require('../config');
 
 const BACKUP_PATTERN = /^gbagl-backup-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z(?:-[a-f0-9]{12})?\.zip$/;
+const BACKUP_OUTPUT_GLOBS = [
+  '**/gbagl-backup-*.zip',
+  '**/gbagl-backup-*.zip.*.tmp',
+];
 const TABLES = ['date_ideas', 'site_settings', 'timeline_milestones'];
 const SCHEMA_VERSION = 1;
 
@@ -96,7 +100,14 @@ function createBackupService(config, dependencies = {}) {
         }
         for (const mediaPath of config.backupMediaPaths) {
           if (fs.existsSync(mediaPath)) {
-            archive.directory(mediaPath, `media/${path.basename(mediaPath)}`);
+            archive.glob('**/*', {
+              cwd: mediaPath,
+              dot: true,
+              follow: false,
+              ignore: BACKUP_OUTPUT_GLOBS,
+            }, {
+              prefix: `media/${path.basename(mediaPath)}`,
+            });
           }
         }
         archive.finalize();
@@ -156,6 +167,7 @@ function scheduleBackups(service, intervalHours) {
 
 module.exports = {
   BACKUP_PATTERN,
+  BACKUP_OUTPUT_GLOBS,
   SCHEMA_VERSION,
   TABLES,
   backupFilename,

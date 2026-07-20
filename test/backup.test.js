@@ -55,3 +55,44 @@ test('backup service defensively rejects recursive media configuration', () => {
     backupRetention: 7,
   }), /must not contain or be contained by BACKUP_DIR/);
 });
+
+test('media traversal excludes backup archives and in-progress output names', async (t) => {
+  const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'gbagl-media-'));
+  const backupDir = path.join(root, 'backups');
+  const mediaDir = path.join(root, 'media');
+  await fs.promises.mkdir(mediaDir);
+  await Promise.all([
+    fs.promises.writeFile(path.join(mediaDir, 'photo.txt'), 'private media'),
+    fs.promises.writeFile(
+      path.join(mediaDir, 'gbagl-backup-2026-07-19T12-34-56.789Z.zip'),
+      'old backup',
+    ),
+    fs.promises.writeFile(
+      path.join(mediaDir, 'gbagl-backup-2026-07-19T12-34-56.789Z-012345abcdef.zip'),
+      'new backup',
+    ),
+    fs.promises.writeFile(
+      path.join(
+        mediaDir,
+        'gbagl-backup-2026-07-19T12-34-56.789Z-012345abcdef.zip.call.tmp',
+      ),
+      'in-progress backup',
+    ),
+  ]);
+  t.after(() => fs.promises.rm(root, { force: true, recursive: true }));
+
+  const service = createBackupService({
+    backupDir,
+    backupMediaPaths: [mediaDir],
+    backupRetention: 7,
+  }, {
+    isDbAvailable: () => true,
+    getPool: () => ({ query: async () => [[]] }),
+  });
+  const backup = await service.create();
+  const archiveBytes = await fs.promises.readFile(backup.path);
+  const archiveText = archiveBytes.toString('latin1');
+
+  assert.match(archiveText, /media\/media\/photo\.txt/);
+  assert.doesNotMatch(archiveText, /media\/media\/gbagl-backup-/);
+});
