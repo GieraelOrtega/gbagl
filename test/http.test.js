@@ -155,6 +155,16 @@ test('Layer 2 pages stay locked, degrade explicitly, and keep admin and CSRF bou
   });
   const base = `http://127.0.0.1:${server.address().port}`;
 
+  const lockedForm = new FormData();
+  lockedForm.append('photo', new Blob([Buffer.from([0xff, 0xd8, 0xff, 0xd9])]), 'photo.jpg');
+  const lockedUpload = await fetch(`${base}/admin/albums/photos/upload`, {
+    method: 'POST',
+    headers: { Accept: 'text/html' },
+    body: lockedForm,
+  });
+  assert.equal(lockedUpload.status, 401);
+  assert.match(await lockedUpload.text(), /Enter Passcode/);
+
   const lockedAlbum = await fetch(`${base}/albums`, { redirect: 'manual' });
   assert.equal(lockedAlbum.status, 401);
   const csrfCookie = firstCookie(lockedAlbum);
@@ -229,6 +239,18 @@ test('Layer 2 pages stay locked, degrade explicitly, and keep admin and CSRF bou
     body: form,
   });
   assert.equal(rejectedUpload.status, 403);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(await require('fs').promises.readdir(config.uploadDir), []);
+
+  const invalidForm = new FormData();
+  invalidForm.append('_csrf', 'invalid-token');
+  invalidForm.append('photo', new Blob([Buffer.from([0xff, 0xd8, 0xff, 0xd9])]), 'photo.jpg');
+  const invalidUpload = await fetch(`${base}/admin/albums/photos/upload`, {
+    method: 'POST',
+    headers: { Cookie: `${cookies}; ${adminCookie}` },
+    body: invalidForm,
+  });
+  assert.equal(invalidUpload.status, 403);
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.deepEqual(await require('fs').promises.readdir(config.uploadDir), []);
 });

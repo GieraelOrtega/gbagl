@@ -67,14 +67,16 @@ function createApp(config = loadConfig(), services = {}) {
   app.get('/js/lock.js', (req, res) => {
     res.sendFile(path.join(__dirname, 'public/js/lock.js'));
   });
+  const csrfProtection = createCsrfProtection({
+    secret: config.cookieSecret,
+    secure: config.production,
+  });
+  app.use(csrfProtection.initialize);
   app.use(
     '/admin/albums/photos/upload',
     createUploadIngress(uploadConfig, adminAuth, passcodeAuth),
   );
-  app.use(createCsrfProtection({
-    secret: config.cookieSecret,
-    secure: config.production,
-  }));
+  app.use(csrfProtection.verify);
 
   const unlockLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,

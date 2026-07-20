@@ -41,6 +41,16 @@ test('anniversary countdown uses the configured timezone and unset dates stay un
   assert.equal(nextAnniversary('', 'UTC'), null);
 });
 
+test('anniversary countdown uses the first valid instant when DST skips local midnight', () => {
+  const countdown = nextAnniversary(
+    '2020-09-06',
+    'America/Santiago',
+    new Date('2026-07-20T04:00:00Z'),
+  );
+  assert.equal(countdown.date.toISOString(), '2026-09-06T04:00:00.000Z');
+  assert.equal(countdown.year, 2026);
+});
+
 test('local event times convert to UTC and reject skipped daylight-saving times', () => {
   assert.equal(
     zonedLocalToUtc('2026-07-19T20:30', 'America/Los_Angeles').toISOString(),
