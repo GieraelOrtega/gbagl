@@ -34,6 +34,8 @@ const {
 
 function createApp(config = loadConfig(), services = {}) {
   const app = express();
+  app.set('trust proxy', 'loopback, linklocal, uniquelocal');
+
   const adminAuth = createAdminAuth(config);
   const passcodeAuth = createPasscodeAuth(config);
   const backupService = services.backupService || createBackupService(config);
@@ -47,7 +49,6 @@ function createApp(config = loadConfig(), services = {}) {
 
   app.set('view engine', 'ejs');
   app.set('views', path.join(__dirname, 'views'));
-  app.set('trust proxy', 'loopback, linklocal, uniquelocal');
 
   app.use(express.urlencoded({ extended: true }));
   app.use(express.json());
