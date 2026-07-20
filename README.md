@@ -125,16 +125,23 @@ put -r . /path/to/htdocs
 
 Gandi's Node.js hosting usually lets you set environment variables in the dashboard or via a configuration file (`.env` or a hosting-specific config panel). Look for an **"Environment variables"** or **"Configuration"** section.
 
-Set all five DB variables, plus `PORT` if required:
+Set the database variables, passcode cookie secret, plus `PORT` if required:
 
 ```
 PORT=<assigned by Gandi, often 3000 or set automatically>
+SITE_PASSCODE=1208
+PASSCODE_COOKIE_SECRET=<a long random value>
 DB_HOST=<your Gandi MySQL host, e.g. yourdomain.mysql.db>
 DB_PORT=3306
 DB_USER=<your DB username>
 DB_PASSWORD=<your DB password>
 DB_NAME=<your DB name>
 ```
+
+The entire site is protected by a four-digit lock screen. Passcodes are checked
+server-side, failed attempts are rate-limited, and successful unlocks use a
+signed, `HttpOnly` cookie. Set `PASSCODE_COOKIE_SECRET` to a stable random value
+in production; otherwise unlocks are reset whenever the app restarts.
 
 > ⚠️  **Never put your real `.env` in the repo.** The `.gitignore` already excludes it.
 
