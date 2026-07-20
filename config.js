@@ -3,6 +3,38 @@ const path = require('path');
 const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
 const MAX_BACKUP_INTERVAL_HOURS = Math.floor(MAX_TIMER_DELAY_MS / (60 * 60 * 1000));
 
+function pathsOverlap(left, right) {
+  const resolvedLeft = path.resolve(left);
+  const resolvedRight = path.resolve(right);
+  const normalizedLeft = process.platform === 'win32'
+    ? resolvedLeft.toLowerCase()
+    : resolvedLeft;
+  const normalizedRight = process.platform === 'win32'
+    ? resolvedRight.toLowerCase()
+    : resolvedRight;
+  const relative = path.relative(normalizedLeft, normalizedRight);
+  const rightWithinLeft = relative === ''
+    || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
+  if (rightWithinLeft) return true;
+
+  const reverseRelative = path.relative(normalizedRight, normalizedLeft);
+  return reverseRelative === ''
+    || (
+      !reverseRelative.startsWith(`..${path.sep}`)
+      && reverseRelative !== '..'
+      && !path.isAbsolute(reverseRelative)
+    );
+}
+
+function assertBackupPathsSeparated(backupDir, mediaPaths) {
+  const overlap = mediaPaths.find((mediaPath) => pathsOverlap(backupDir, mediaPath));
+  if (overlap) {
+    throw new Error(
+      `BACKUP_MEDIA_PATHS must not contain or be contained by BACKUP_DIR: ${overlap}`,
+    );
+  }
+}
+
 function required(env, name, aliases = []) {
   const key = [name, ...aliases].find((candidate) => env[candidate]);
   const value = key ? env[key].trim() : '';
@@ -73,6 +105,12 @@ function loadConfig(env = process.env) {
       `BACKUP_INTERVAL_HOURS must not exceed ${MAX_BACKUP_INTERVAL_HOURS}`,
     );
   }
+  const backupMediaPaths = (env.BACKUP_MEDIA_PATHS || 'public/images,runtime/uploads')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => path.resolve(root, item));
+  assertBackupPathsSeparated(backupDir, backupMediaPaths);
 
   return Object.freeze({
     production,
@@ -84,17 +122,15 @@ function loadConfig(env = process.env) {
     backupDir,
     backupRetention: positiveInteger(env.BACKUP_RETENTION, 7, 'BACKUP_RETENTION'),
     backupIntervalHours,
-    backupMediaPaths: (env.BACKUP_MEDIA_PATHS || 'public/images,runtime/uploads')
-      .split(',')
-      .map((item) => item.trim())
-      .filter(Boolean)
-      .map((item) => path.resolve(root, item)),
+    backupMediaPaths,
   });
 }
 
 module.exports = {
   MAX_BACKUP_INTERVAL_HOURS,
   MAX_TIMER_DELAY_MS,
+  assertBackupPathsSeparated,
   loadConfig,
+  pathsOverlap,
   positiveInteger,
 };

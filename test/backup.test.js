@@ -46,3 +46,12 @@ test('backup scheduler rejects values that would overflow Node timers', () => {
   );
   assert.throws(() => scheduleBackups(service, 0), /integer from 1/);
 });
+
+test('backup service defensively rejects recursive media configuration', () => {
+  const backupDir = path.resolve('runtime', 'backups-test');
+  assert.throws(() => createBackupService({
+    backupDir,
+    backupMediaPaths: [path.dirname(backupDir)],
+    backupRetention: 7,
+  }), /must not contain or be contained by BACKUP_DIR/);
+});

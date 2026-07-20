@@ -74,3 +74,26 @@ test('backup interval accepts the timer boundary and rejects overflow', () => {
     BACKUP_INTERVAL_HOURS: '24hours',
   }), /must be a positive integer/);
 });
+
+test('backup media and output directories cannot overlap in either direction', () => {
+  const base = {
+    SITE_PASSCODE: '8462',
+    COOKIE_SECRET: 'abcdefghijklmnop',
+    ADMIN_PASSWORD: 'local-admin',
+  };
+  assert.throws(() => loadConfig({
+    ...base,
+    BACKUP_DIR: 'runtime/backups',
+    BACKUP_MEDIA_PATHS: 'runtime',
+  }), /must not contain or be contained by BACKUP_DIR/);
+  assert.throws(() => loadConfig({
+    ...base,
+    BACKUP_DIR: 'runtime',
+    BACKUP_MEDIA_PATHS: 'runtime/uploads',
+  }), /must not contain or be contained by BACKUP_DIR/);
+  assert.doesNotThrow(() => loadConfig({
+    ...base,
+    BACKUP_DIR: 'runtime/backups',
+    BACKUP_MEDIA_PATHS: 'runtime/uploads',
+  }));
+});

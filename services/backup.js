@@ -6,6 +6,7 @@ const { getPool, isDbAvailable } = require('../db');
 const {
   MAX_BACKUP_INTERVAL_HOURS,
   MAX_TIMER_DELAY_MS,
+  assertBackupPathsSeparated,
 } = require('../config');
 
 const BACKUP_PATTERN = /^gbagl-backup-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z(?:-[a-f0-9]{12})?\.zip$/;
@@ -27,6 +28,7 @@ function resolveBackupPath(backupDir, filename) {
 }
 
 function createBackupService(config, dependencies = {}) {
+  assertBackupPathsSeparated(config.backupDir, config.backupMediaPaths);
   const databaseAvailable = dependencies.isDbAvailable || isDbAvailable;
   const databasePool = dependencies.getPool || getPool;
   let creationQueue = Promise.resolve();
@@ -54,6 +56,14 @@ function createBackupService(config, dependencies = {}) {
   async function createOne() {
     if (!databaseAvailable()) throw new Error('Database is unavailable; backup was not created');
     await fs.promises.mkdir(config.backupDir, { recursive: true });
+    const realBackupDir = await fs.promises.realpath(config.backupDir);
+    const realMediaPaths = [];
+    for (const mediaPath of config.backupMediaPaths) {
+      if (fs.existsSync(mediaPath)) {
+        realMediaPaths.push(await fs.promises.realpath(mediaPath));
+      }
+    }
+    assertBackupPathsSeparated(realBackupDir, realMediaPaths);
 
     const createdAt = new Date();
     const filename = backupFilename(createdAt);

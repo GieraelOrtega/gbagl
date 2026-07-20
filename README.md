@@ -69,6 +69,8 @@ BACKUP_MEDIA_PATHS=public/images,runtime/uploads
 
 The default backup directory is outside `public/` and ignored by Git. Keep any custom `BACKUP_DIR` outside web-accessible static paths and include it in host-level storage backups. Seven archives are retained by default. Admins can list, download, and manually trigger backups from `/admin`; filenames are allowlisted to prevent path traversal.
 
+`BACKUP_MEDIA_PATHS` must not contain or be contained by `BACKUP_DIR`. Startup rejects lexical overlap, and backup creation verifies real paths before opening an archive so symlink aliases cannot recursively include backup output.
+
 Backups are application-level JSON/ZIP snapshots, not transaction-consistent MySQL server snapshots. Media is included only when available to the Node process. Test restore procedures separately before relying on backups for disaster recovery.
 
 ## Routes
