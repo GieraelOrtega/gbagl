@@ -87,3 +87,21 @@ test('offline shell styling cannot be mistaken for the authenticated lock respon
   assert.doesNotMatch(offline, /data-locked-state/);
   assert.match(lock, /data-locked-state/);
 });
+
+test('shared navigation and lock screen keep only read-only network status visible', () => {
+  const nav = fs.readFileSync(
+    path.join(__dirname, '..', 'views', 'partials', 'nav.ejs'),
+    'utf8',
+  );
+  const lock = fs.readFileSync(path.join(__dirname, '..', 'views', 'lock.ejs'), 'utf8');
+
+  assert.doesNotMatch(nav, /✨ Adventure|📖 Timeline/);
+  assert.match(nav, />Adventure</);
+  assert.match(nav, />Timeline</);
+  assert.doesNotMatch(nav, />Online</);
+  assert.match(nav, /Offline · read-only copies/);
+  assert.match(nav, /data-network-status-announcer/);
+  assert.doesNotMatch(lock, /This little corner of the internet is private\./);
+  assert.doesNotMatch(lock, />Online</);
+  assert.match(lock, /data-pwa-controls hidden/);
+});

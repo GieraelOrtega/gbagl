@@ -159,12 +159,6 @@ body {
   letter-spacing: -0.02em;
 }
 
-.passcode__hint {
-  margin-top: 0.45rem;
-  color: rgba(255, 255, 255, 0.68);
-  font-size: 0.9rem;
-}
-
 .passcode__form {
   position: relative;
   margin-top: 1.75rem;
@@ -383,8 +377,11 @@ h1, h2, h3, h4 {
   font-weight: 700;
   white-space: nowrap;
 }
-.network-status--offline { color: var(--color-warning-text); }
 .network-status--dark { color: rgba(255, 255, 255, 0.72); }
+.network-status--offline { color: var(--color-warning-text); }
+.network-status[hidden],
+[data-network-status-container][hidden],
+.pwa-controls[hidden] { display: none; }
 .pwa-controls {
   display: flex;
   align-items: center;

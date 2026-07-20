@@ -9,10 +9,10 @@
         <a href="/" class="nav__link<%= page === 'home'      ? ' nav__link--active' : '' %>">Home</a>
       </li>
       <% if (!offlineSnapshot) { %><li>
-        <a href="/adventure" class="nav__link<%= page === 'adventure' ? ' nav__link--active' : '' %>">✨ Adventure</a>
+        <a href="/adventure" class="nav__link<%= page === 'adventure' ? ' nav__link--active' : '' %>">Adventure</a>
       </li><% } %>
       <li>
-        <a href="/timeline"  class="nav__link<%= page === 'timeline'  ? ' nav__link--active' : '' %>">📖 Timeline</a>
+        <a href="/timeline"  class="nav__link<%= page === 'timeline'  ? ' nav__link--active' : '' %>">Timeline</a>
       </li>
       <li>
         <a href="/bucket" class="nav__link<%= page === 'bucket' ? ' nav__link--active' : '' %>">Bucket List</a>
@@ -37,7 +37,10 @@
         </form>
       </li><% } %>
       <li><button type="button" class="nav__button" data-install-app hidden>Install app</button></li>
-      <li><span class="network-status" data-network-status><%= offlineSnapshot ? 'Offline · read-only copies' : 'Online' %></span></li>
+      <li data-network-status-container<%= offlineSnapshot ? '' : ' hidden' %>>
+        <span class="network-status network-status--offline" data-network-status<%= offlineSnapshot ? '' : ' hidden' %>><%= offlineSnapshot ? 'Offline · read-only copies' : '' %></span>
+      </li>
     </ul>
+    <span class="visually-hidden" data-network-status-announcer role="status" aria-live="polite" aria-atomic="true"></span>
   </div>
 </nav>
