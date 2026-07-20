@@ -7,12 +7,18 @@ const PRIVATE_CACHE_PREFIX = `${PRIVATE_CACHE_ROOT}${CACHE_VERSION}-`;
 const STATE_CACHE_ROOT = 'gbagl-state-';
 const STATE_CACHE = `${STATE_CACHE_ROOT}${CACHE_VERSION}`;
 const STATE_PATH = '/__gbagl-private-state__/';
+const REVOCATION_CACHE_ROOT = 'gbagl-revocation-';
+const REVOCATION_CACHE = `${REVOCATION_CACHE_ROOT}${CACHE_VERSION}`;
+const REVOCATION_KEY = new Request(
+  new URL('/__gbagl-private-revocation__', self.location.origin).href,
+);
 const PRIVATE_INSTANCE = self.crypto.randomUUID();
 const policy = self.gbaglPwaPolicy;
 let privateGeneration = 0;
 let privateAccessAllowed = false;
 let activePrivateCache = null;
 let lockRequestsPending = 0;
+let revocationsPending = 0;
 let privateCacheQueue = Promise.resolve();
 let privateMaintenance = Promise.resolve();
 
@@ -37,6 +43,13 @@ function stateRequest(value) {
 async function persistStateRecord(value) {
   const cache = await caches.open(STATE_CACHE);
   await cache.put(stateRequest(value), new Response(JSON.stringify(value), {
+    headers: { 'Content-Type': 'application/json' },
+  }));
+}
+
+async function persistRevocationTombstone(value) {
+  const cache = await caches.open(REVOCATION_CACHE);
+  await cache.put(REVOCATION_KEY, new Response(JSON.stringify(value), {
     headers: { 'Content-Type': 'application/json' },
   }));
 }
@@ -78,6 +91,90 @@ function validStateRecord(value) {
     && value.generation > 0;
 }
 
+async function readDurableState() {
+  const [stateCache, revocationCache] = await Promise.all([
+    caches.open(STATE_CACHE),
+    caches.open(REVOCATION_CACHE),
+  ]);
+  const [stateRequests, cacheNames, tombstoneResponse] = await Promise.all([
+    stateCache.keys(),
+    caches.keys(),
+    revocationCache.match(REVOCATION_KEY),
+  ]);
+  const records = (await Promise.all(stateRequests.map(async (request) => {
+    const response = await stateCache.match(request);
+    if (!response) return null;
+    return {
+      request,
+      value: await response.json(),
+    };
+  }))).filter(Boolean);
+  if (tombstoneResponse) {
+    records.push({
+      request: null,
+      value: await tombstoneResponse.json(),
+    });
+  }
+  if (records.some((record) => !validStateRecord(record.value))) {
+    throw new Error('Invalid private authorization state');
+  }
+  records.sort((left, right) => (
+    right.value.generation - left.value.generation
+    || Number(left.value.authorized) - Number(right.value.authorized)
+  ));
+  return {
+    cacheNames,
+    current: records[0] || null,
+    stateCache,
+    stateRequests,
+  };
+}
+
+function applyDurableState(snapshot) {
+  const stored = snapshot.current?.value || null;
+  if (revocationsPending > 0) return false;
+  if (!stored) {
+    privateAccessAllowed = false;
+    activePrivateCache = null;
+    return false;
+  }
+  if (stored.generation < privateGeneration) {
+    if (privateAccessAllowed) {
+      privateAccessAllowed = false;
+      activePrivateCache = null;
+    }
+    return false;
+  }
+  privateGeneration = stored.generation;
+  if (validAuthorizedState(stored, snapshot.cacheNames)) {
+    privateAccessAllowed = true;
+    activePrivateCache = stored.cacheName;
+    return true;
+  }
+  privateAccessAllowed = false;
+  activePrivateCache = null;
+  return false;
+}
+
+async function reconcilePrivateState() {
+  try {
+    const snapshot = await readDurableState();
+    applyDurableState(snapshot);
+    return snapshot;
+  } catch (error) {
+    privateGeneration += 1;
+    privateAccessAllowed = false;
+    activePrivateCache = null;
+    console.error('GBAGL private authorization reconciliation failed closed:', error);
+    throw error;
+  }
+}
+
+function nextDurableGeneration(snapshot) {
+  const durableGeneration = snapshot.current?.value?.generation || 0;
+  return Math.max(Date.now(), durableGeneration + 1, privateGeneration + 1);
+}
+
 function deleteNamedCaches(names) {
   return Promise.allSettled(names.map((name) => caches.delete(name))).then((results) => {
     results
@@ -94,52 +191,22 @@ function deleteNamedCaches(names) {
 async function restorePrivateState() {
   const restoreGeneration = privateGeneration;
   try {
-    const stateCache = await caches.open(STATE_CACHE);
-    const [stateRequests, cacheNames] = await Promise.all([
-      stateCache.keys(),
-      caches.keys(),
-    ]);
-    const records = await Promise.all(stateRequests.map(async (request) => {
-      const response = await stateCache.match(request);
-      return {
-        request,
-        value: response ? await response.json() : null,
-      };
-    }));
-    if (records.some((record) => !validStateRecord(record.value))) {
-      throw new Error('Invalid private authorization state');
-    }
-    records.sort((left, right) => (
-      right.value.generation - left.value.generation
-      || Number(left.value.authorized) - Number(right.value.authorized)
-    ));
-    const current = records[0] || null;
-    const stored = current?.value || null;
+    const snapshot = await readDurableState();
     if (
       privateGeneration !== restoreGeneration
       || privateAccessAllowed
       || activePrivateCache
+      || revocationsPending > 0
     ) return;
-    if (validAuthorizedState(stored, cacheNames)) {
-      privateGeneration = stored.generation;
-      privateAccessAllowed = true;
-      activePrivateCache = stored.cacheName;
-    } else if (
-      stored
-      && stored.version === CACHE_VERSION
-      && Number.isSafeInteger(stored.generation)
-      && stored.generation > privateGeneration
-    ) {
-      privateGeneration = stored.generation;
-    }
+    applyDurableState(snapshot);
     const keep = privateAccessAllowed ? activePrivateCache : null;
     privateMaintenance = Promise.allSettled([
-      deleteNamedCaches(cacheNames.filter(
+      deleteNamedCaches(snapshot.cacheNames.filter(
         (name) => name.startsWith(PRIVATE_CACHE_ROOT) && name !== keep,
       )),
-      Promise.allSettled(stateRequests
-        .filter((request) => request.url !== current?.request.url)
-        .map((request) => stateCache.delete(request))),
+      Promise.allSettled(snapshot.stateRequests
+        .filter((request) => request.url !== snapshot.current?.request?.url)
+        .map((request) => snapshot.stateCache.delete(request))),
     ]).then(() => undefined);
   } catch (error) {
     privateGeneration += 1;
@@ -148,7 +215,10 @@ async function restorePrivateState() {
     console.error('GBAGL private authorization state restore failed closed:', error);
     privateMaintenance = deletePrivateCaches();
     try {
-      await caches.delete(STATE_CACHE);
+      await Promise.all([
+        caches.delete(STATE_CACHE),
+        caches.delete(REVOCATION_CACHE),
+      ]);
       await persistRevokedState(privateGeneration);
     } catch (writeError) {
       console.error('GBAGL revoked state persistence failed:', writeError);
@@ -216,10 +286,30 @@ async function notifyAuthorizationLost() {
 
 async function persistRevokedState(generation) {
   try {
-    await persistStateRecord(revokedState(generation));
+    const snapshot = await readDurableState();
+    const durableGeneration = Math.max(
+      generation,
+      nextDurableGeneration(snapshot),
+    );
+    const value = revokedState(durableGeneration);
+    const results = await Promise.allSettled([
+      persistStateRecord(value),
+      persistRevocationTombstone(value),
+    ]);
+    if (results.every((result) => result.status === 'rejected')) {
+      throw new AggregateError(
+        results.map((result) => result.reason),
+        'Durable revocation persistence failed',
+      );
+    }
+    privateGeneration = Math.max(privateGeneration, durableGeneration);
+    return durableGeneration;
   } catch (writeError) {
     try {
-      await caches.delete(STATE_CACHE);
+      await Promise.all([
+        caches.delete(STATE_CACHE),
+        caches.delete(REVOCATION_CACHE),
+      ]);
     } catch (deleteError) {
       console.error('GBAGL authorization state invalidation failed:', deleteError);
     }
@@ -231,10 +321,16 @@ function revokePrivateData(notifyClients = false) {
   privateGeneration += 1;
   privateAccessAllowed = false;
   activePrivateCache = null;
-  const cleanup = [
-    persistRevokedState(privateGeneration).catch((error) => {
+  revocationsPending += 1;
+  const durableRevocation = persistRevokedState(privateGeneration)
+    .catch((error) => {
       console.error('GBAGL revoked state persistence failed:', error);
-    }),
+    })
+    .finally(() => {
+      revocationsPending -= 1;
+    });
+  const cleanup = [
+    durableRevocation,
     deletePrivateCaches(),
     closeNotifications(),
   ];
@@ -249,14 +345,31 @@ async function putPrivateCacheEntry(
   expectedGeneration,
   expectedCache,
 ) {
+  await reconcilePrivateState();
+  if (!privateStateMatches(expectedGeneration, expectedCache)) return false;
   await cache.put(request, response);
+  try {
+    await reconcilePrivateState();
+  } catch {
+    await cache.delete(request);
+    return false;
+  }
   if (privateStateMatches(expectedGeneration, expectedCache)) return true;
   try {
     await cache.delete(request);
   } catch (error) {
     console.warn('GBAGL stale private cache write cleanup failed:', error);
   }
+
   return false;
+}
+
+async function persistAuthorizedState(cacheName) {
+  const snapshot = await readDurableState();
+  if (revocationsPending > 0) return null;
+  const generation = nextDurableGeneration(snapshot);
+  await persistStateRecord(authorizedState(generation, cacheName));
+  return generation;
 }
 
 async function fetchWithAuthorizationCheck(request, extendLifetime = () => {}) {
@@ -278,8 +391,13 @@ function isCacheableSnapshot(response) {
 }
 
 async function authorizePrivateCache(value, extendLifetime = () => {}) {
-  const authorizationGeneration = privateGeneration;
   await privateStateReady;
+  try {
+    await reconcilePrivateState();
+  } catch {
+    return;
+  }
+  const authorizationGeneration = privateGeneration;
   const canonicalUrl = policy.canonicalSnapshotUrl(value, self.location.origin);
   if (!canonicalUrl) return;
   const headers = new Headers({
@@ -294,9 +412,15 @@ async function authorizePrivateCache(value, extendLifetime = () => {}) {
   if (!isCacheableSnapshot(response)) return;
   try {
     await withPrivateCache(async () => {
+      try {
+        await reconcilePrivateState();
+      } catch {
+        return;
+      }
       if (
         authorizationGeneration !== privateGeneration
         || lockRequestsPending > 0
+        || revocationsPending > 0
       ) return;
       if (privateAccessAllowed && activePrivateCache) {
         const grantedGeneration = privateGeneration;
@@ -312,34 +436,41 @@ async function authorizePrivateCache(value, extendLifetime = () => {}) {
         );
         return;
       }
-      privateGeneration += 1;
-      const grantedGeneration = privateGeneration;
-      const grantedCache = privateCacheName(grantedGeneration);
+      const provisionalGeneration = Math.max(Date.now(), privateGeneration + 1);
+      const grantedCache = privateCacheName(provisionalGeneration);
       const request = new Request(canonicalUrl);
       const cache = await caches.open(grantedCache);
       await cache.put(request, response);
       if (
-        grantedGeneration !== privateGeneration
+        authorizationGeneration !== privateGeneration
         || lockRequestsPending > 0
+        || revocationsPending > 0
       ) {
         await cache.delete(request);
         return;
       }
+      let grantedGeneration;
       try {
-        await persistStateRecord(authorizedState(grantedGeneration, grantedCache));
+        grantedGeneration = await persistAuthorizedState(grantedCache);
       } catch (error) {
         await cache.delete(request);
         throw error;
       }
-      if (
-        grantedGeneration !== privateGeneration
-        || lockRequestsPending > 0
-      ) {
+      if (!grantedGeneration) {
         await cache.delete(request);
         return;
       }
-      privateAccessAllowed = true;
-      activePrivateCache = grantedCache;
+      try {
+        await reconcilePrivateState();
+      } catch {
+        await cache.delete(request);
+        return;
+      }
+      if (
+        !privateStateMatches(grantedGeneration, grantedCache)
+        || lockRequestsPending > 0
+        || revocationsPending > 0
+      ) await cache.delete(request);
     });
   } catch (error) {
     privateAccessAllowed = false;
@@ -351,8 +482,10 @@ async function authorizePrivateCache(value, extendLifetime = () => {}) {
 async function privateCacheMatch(request, expectedGeneration, expectedCache) {
   try {
     return await withPrivateCache(async () => {
+      await reconcilePrivateState();
       if (!privateStateMatches(expectedGeneration, expectedCache)) return null;
       const cached = await caches.match(request, { cacheName: expectedCache });
+      await reconcilePrivateState();
       if (!privateStateMatches(expectedGeneration, expectedCache)) return null;
       return cached || null;
     });
@@ -364,6 +497,11 @@ async function privateCacheMatch(request, expectedGeneration, expectedCache) {
 
 async function navigationResponse(request, extendLifetime = () => {}) {
   await privateStateReady;
+  try {
+    await reconcilePrivateState();
+  } catch {
+    return caches.match('/offline.html', { cacheName: PUBLIC_CACHE });
+  }
   const canonicalUrl = policy.canonicalSnapshotUrl(request.url, self.location.origin);
   const expectedGeneration = privateGeneration;
   const expectedCache = activePrivateCache;
@@ -384,6 +522,14 @@ async function navigationResponse(request, extendLifetime = () => {}) {
 
 async function protectedMediaResponse(request, extendLifetime = () => {}) {
   await privateStateReady;
+  try {
+    await reconcilePrivateState();
+  } catch {
+    return new Response('Photo unavailable offline.', {
+      status: 503,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    });
+  }
   const expectedGeneration = privateGeneration;
   const expectedCache = activePrivateCache;
   try {
@@ -396,6 +542,7 @@ async function protectedMediaResponse(request, extendLifetime = () => {}) {
     ) {
       try {
         await withPrivateCache(async () => {
+          await reconcilePrivateState();
           if (!privateStateMatches(expectedGeneration, expectedCache)) return;
           const cache = await caches.open(expectedCache);
           if (!privateStateMatches(expectedGeneration, expectedCache)) return;
@@ -450,10 +597,12 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     privateStateReady
+      .then(() => reconcilePrivateState())
       .then(() => caches.keys())
       .then((names) => deleteNamedCaches(names.filter((name) => (
         (name.startsWith('gbagl-public-') && name !== PUBLIC_CACHE)
         || (name.startsWith(STATE_CACHE_ROOT) && name !== STATE_CACHE)
+        || (name.startsWith(REVOCATION_CACHE_ROOT) && name !== REVOCATION_CACHE)
       ))))
       .then(() => privateMaintenance)
       .then(() => self.clients.claim()),

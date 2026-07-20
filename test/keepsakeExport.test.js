@@ -7,9 +7,12 @@ const {
   buildPdf,
   buildPrintableHtml,
   buildZip,
+  embedPdfImage,
+  ensurePdfSpace,
   loadKeepsakeData,
   mediaArchiveName,
   preparePdfMedia,
+  reservePdfItem,
   safeArchiveName,
   safePdfImage,
 } = require('../services/keepsakeExport');
@@ -177,6 +180,80 @@ test('PDF media preparation enforces aggregate pixel and image budgets', async (
   assert.equal(countLimited[0].pdfStatus, 'included');
   assert.equal(countLimited[1].pdfStatus, 'skipped-image-count-budget');
   assert.equal(countLimited[2].pdfStatus, 'skipped-image-count-budget');
+});
+
+test('PDF item planning moves image blocks that do not fit the printable area', () => {
+  let addedPages = 0;
+  const doc = {
+    page: {
+      height: 792,
+      margins: {
+        bottom: 58,
+        left: 54,
+        right: 54,
+        top: 54,
+      },
+    },
+    y: 500,
+    addPage() {
+      addedPages += 1;
+      this.y = 54;
+    },
+    font() { return this; },
+    fontSize() { return this; },
+    heightOfString(value) { return value.length; },
+  };
+
+  reservePdfItem(doc, [
+    { font: 'Helvetica-Bold', size: 11, text: 'Measured heading' },
+    { font: 'Helvetica', size: 10, text: 'Measured description' },
+  ], 300);
+
+  assert.equal(addedPages, 1);
+  assert.equal(doc.y, 54);
+  assert.ok(doc.y + 300 <= doc.page.height - doc.page.margins.bottom);
+});
+
+test('PDF continues when a header-valid JPEG is rejected by PDFKit embedding', async () => {
+  const craftedJpeg = Buffer.from([
+    0xff, 0xd8,
+    0xff, 0xff, 0xc0,
+    0x00, 0x0b, 0x08, 0x00, 0x01, 0x00, 0x01, 0x01, 0x01, 0x11, 0x00,
+    0xff, 0xd9,
+  ]);
+  assert.equal(await safePdfImage(craftedJpeg, 'image/jpeg'), craftedJpeg);
+
+  const notes = [];
+  const fakeDoc = {
+    font() { return this; },
+    fontSize() { return this; },
+    image() { throw new Error('Unknown JPEG marker'); },
+    text(value) { notes.push(value); return this; },
+  };
+  assert.equal(embedPdfImage(
+    fakeDoc,
+    craftedJpeg,
+    { fit: [450, 300] },
+    'Photo could not be embedded; its caption remains in this PDF.',
+  ), false);
+  assert.deepEqual(notes, [
+    'Photo could not be embedded; its caption remains in this PDF.',
+  ]);
+
+  const pdf = await buildPdf(sampleExportData(), [{
+    archivePath: 'media/albums/000005/photo-000006.jpg',
+    buffer: craftedJpeg,
+    kind: 'album',
+    mediaType: 'image/jpeg',
+    record: {
+      album_id: 5,
+      caption: 'Crafted JPEG',
+      id: 6,
+      media_type: 'image/jpeg',
+    },
+    status: 'included',
+  }]);
+  assert.equal(pdf.subarray(0, 5).toString('ascii'), '%PDF-');
 });
 
 test('export data uses one repeatable-read transaction and always releases it', async () => {

@@ -40,8 +40,12 @@ function createWorkerHarness(options = {}) {
     deleteImpl: async (name) => cacheData.delete(name),
     fetchImpl: async () => { throw new Error('offline'); },
     getNotificationsImpl: async () => [],
+    logs: [],
     privateMatchCalls: 0,
     stateReadError: options.stateReadError || false,
+    stateKeysImpl: options.stateKeysImpl || (async (entries) => [...entries.keys()]),
+    stateMatchImpl: options.stateMatchImpl
+      || (async (entries, key) => entries.get(key)?.clone()),
     putImpl: async (entries, key, value) => {
       entries.set(key, value.clone());
     },
@@ -73,16 +77,22 @@ function createWorkerHarness(options = {}) {
           if (name === 'gbagl-state-v1' && state.stateReadError) {
             throw new Error('state read failure');
           }
-          return [...entries.keys()].map((key) => new Request(key));
+          const keys = name === 'gbagl-state-v1'
+            ? await state.stateKeysImpl(entries)
+            : [...entries.keys()];
+          return keys.map((key) => new Request(key));
         },
         async match(request) {
           if (name === 'gbagl-state-v1' && state.stateReadError) {
             throw new Error('state read failure');
           }
+          if (name === 'gbagl-state-v1') {
+            return state.stateMatchImpl(entries, cacheKey(request));
+          }
           return entries.get(cacheKey(request))?.clone();
         },
         async put(request, value) {
-          await state.putImpl(entries, cacheKey(request), value);
+          await state.putImpl(entries, cacheKey(request), value, name);
         },
         async delete(request) {
           return entries.delete(cacheKey(request));
@@ -114,8 +124,12 @@ function createWorkerHarness(options = {}) {
     URL,
     caches,
     console: {
-      error() {},
-      warn() {},
+      error(...args) {
+        state.logs.push(args.map((value) => value?.stack || String(value)));
+      },
+      warn(...args) {
+        state.logs.push(args.map((value) => value?.stack || String(value)));
+      },
     },
     fetch: (...args) => state.fetchImpl(...args),
     importScripts() {
@@ -156,7 +170,11 @@ async function authorize(harness, body = 'private snapshot') {
     cacheOptIn: policy.SNAPSHOT_OPT_IN,
   });
   await harness.hooks.authorizePrivateCache('https://gba.gl/');
-  assert.equal(harness.hooks.state().accessAllowed, true);
+  assert.equal(
+    harness.hooks.state().accessAllowed,
+    true,
+    JSON.stringify(harness.state.logs),
+  );
 }
 
 async function offlineNavigation(harness) {
@@ -603,7 +621,7 @@ test('stale authorized state write cannot overwrite a newer durable revocation',
   assert.equal(await offline.text(), 'safe offline shell');
 });
 
-test('failed revoked-state write invalidates older durable authorization', async () => {
+test('tombstone supersedes authorization when the primary revoked-state write fails', async () => {
   const first = createWorkerHarness({ instance: 'worker-one' });
   await authorize(first, 'private residue');
   const privateCache = first.hooks.state().cacheName;
@@ -618,7 +636,8 @@ test('failed revoked-state write invalidates older durable authorization', async
 
   await first.hooks.revokePrivateData();
   assert.equal(first.cacheData.has(privateCache), true);
-  assert.equal(first.cacheData.has('gbagl-state-v1'), false);
+  assert.equal(first.cacheData.has('gbagl-state-v1'), true);
+  assert.equal(first.cacheData.has('gbagl-revocation-v1'), true);
 
   const restarted = createWorkerHarness({
     cacheData: first.cacheData,
@@ -657,4 +676,155 @@ test('corrupt state fails closed and self-heals for later authorization', async 
 
   assert.equal(restarted.hooks.state().accessAllowed, true);
   assert.equal(await offline.text(), 'fresh snapshot');
+});
+
+test('early revoke supersedes a higher stored authorization during restoration', async () => {
+  const cacheName = 'gbagl-private-v1-old-worker-7';
+  const cacheData = new Map([
+    ['gbagl-public-v1', new Map([
+      ['/offline.html', response('safe offline shell', { status: 503 })],
+    ])],
+    [cacheName, new Map([
+      ['https://gba.gl/', response('generation seven snapshot')],
+    ])],
+    ['gbagl-state-v1', new Map([[
+      'https://gba.gl/__gbagl-private-state__/7-authorized',
+      response(JSON.stringify({
+        authorized: true,
+        cacheName,
+        generation: 7,
+        version: 'v1',
+      }), { contentType: 'application/json' }),
+    ]])],
+  ]);
+  const restoration = deferred();
+  const starting = createWorkerHarness({
+    cacheData,
+    instance: 'worker-starting',
+    stateKeysImpl: async (entries) => {
+      await restoration.promise;
+      return [...entries.keys()];
+    },
+  });
+  starting.state.deleteImpl = async () => { throw new Error('disk failure'); };
+
+  const revoke = starting.hooks.revokePrivateData();
+  assert.equal(starting.hooks.state().accessAllowed, false);
+  restoration.resolve();
+  await Promise.all([starting.hooks.ready, revoke]);
+
+  const restarted = createWorkerHarness({
+    cacheData,
+    instance: 'worker-restarted',
+  });
+  restarted.state.deleteImpl = async () => { throw new Error('disk failure'); };
+  await restarted.hooks.ready;
+  const offline = await offlineNavigation(restarted);
+
+  assert.equal(restarted.hooks.state().accessAllowed, false);
+  assert.equal(await offline.text(), 'safe offline shell');
+  assert.equal(restarted.state.privateMatchCalls, 0);
+});
+
+test('replacement worker reconciles a later revocation before offline cache read', async () => {
+  const active = createWorkerHarness({ instance: 'worker-active' });
+  await authorize(active, 'shared private snapshot');
+  const replacement = createWorkerHarness({
+    cacheData: active.cacheData,
+    instance: 'worker-replacement',
+  });
+  await replacement.hooks.ready;
+  assert.equal(replacement.hooks.state().accessAllowed, true);
+
+  active.state.deleteImpl = async () => { throw new Error('disk failure'); };
+  await active.hooks.revokePrivateData();
+  replacement.state.deleteImpl = async () => { throw new Error('disk failure'); };
+  const offline = await offlineNavigation(replacement);
+
+  assert.equal(replacement.hooks.state().accessAllowed, false);
+  assert.equal(await offline.text(), 'safe offline shell');
+  assert.equal(replacement.state.privateMatchCalls, 0);
+});
+
+test('reconciliation tolerates a stale state key disappearing after listing', async () => {
+  const active = createWorkerHarness({ instance: 'worker-active' });
+  await authorize(active, 'current snapshot');
+  const staleKey = 'https://gba.gl/__gbagl-private-state__/1-authorized';
+  active.cacheData.get('gbagl-state-v1').set(staleKey, response(JSON.stringify({
+    authorized: true,
+    cacheName: 'gbagl-private-v1-stale-1',
+    generation: 1,
+    version: 'v1',
+  }), { contentType: 'application/json' }));
+  active.state.stateMatchImpl = async (entries, key) => {
+    if (key === staleKey) {
+      entries.delete(key);
+      return undefined;
+    }
+    return entries.get(key)?.clone();
+  };
+
+  const offline = await offlineNavigation(active);
+
+  assert.equal(active.hooks.state().accessAllowed, true);
+  assert.equal(await offline.text(), 'current snapshot');
+});
+
+test('independent tombstone defeats surviving auth after primary revoke failures', async () => {
+  const active = createWorkerHarness({ instance: 'worker-active' });
+  await authorize(active, 'private residue');
+  const privateCache = active.hooks.state().cacheName;
+  active.state.putImpl = async (entries, key, value, cacheName) => {
+    if (cacheName === 'gbagl-state-v1' && key.endsWith('-revoked')) {
+      throw new Error('primary revoked-state write failure');
+    }
+    entries.set(key, value.clone());
+  };
+  active.state.deleteImpl = async (name) => {
+    if (name === 'gbagl-state-v1' || name === privateCache) {
+      throw new Error('primary deletion failure');
+    }
+    return active.cacheData.delete(name);
+  };
+
+  await active.hooks.revokePrivateData();
+  assert.equal(active.cacheData.has(privateCache), true);
+  assert.equal(active.cacheData.has('gbagl-state-v1'), true);
+
+  const restarted = createWorkerHarness({
+    cacheData: active.cacheData,
+    instance: 'worker-restarted',
+  });
+  restarted.state.deleteImpl = async () => { throw new Error('disk failure'); };
+  await restarted.hooks.ready;
+  const offline = await offlineNavigation(restarted);
+
+  assert.equal(restarted.hooks.state().accessAllowed, false);
+  assert.equal(await offline.text(), 'safe offline shell');
+  assert.equal(restarted.state.privateMatchCalls, 0);
+});
+
+test('loss of the current auth record cannot fall back to an older tombstone', async () => {
+  const active = createWorkerHarness({ instance: 'worker-active' });
+  await authorize(active, 'initial snapshot');
+  active.state.deleteImpl = async () => { throw new Error('disk failure'); };
+  await active.hooks.revokePrivateData();
+  active.state.deleteImpl = async (name) => active.cacheData.delete(name);
+  await authorize(active, 'new authorized snapshot');
+
+  const replacement = createWorkerHarness({
+    cacheData: active.cacheData,
+    instance: 'worker-replacement',
+  });
+  await replacement.hooks.ready;
+  await replacement.hooks.maintenance();
+  assert.equal(replacement.hooks.state().accessAllowed, true);
+  const stateEntries = replacement.cacheData.get('gbagl-state-v1');
+  const currentAuthKey = [...stateEntries.keys()].find((key) => key.endsWith('-authorized'));
+  stateEntries.delete(currentAuthKey);
+
+  const offline = await offlineNavigation(replacement);
+
+  assert.equal(replacement.hooks.state().accessAllowed, false);
+  assert.equal(await offline.text(), 'safe offline shell');
 });

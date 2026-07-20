@@ -532,6 +532,33 @@ function addPdfSection(doc, title, items, renderItem) {
   });
 }
 
+function ensurePdfSpace(doc, requiredHeight) {
+  const printableBottom = doc.page.height - doc.page.margins.bottom;
+  if (doc.y + requiredHeight > printableBottom) doc.addPage();
+}
+
+function reservePdfItem(doc, textBlocks, imageHeight = 0) {
+  const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  const printableHeight = doc.page.height
+    - doc.page.margins.top
+    - doc.page.margins.bottom;
+  const textHeight = textBlocks.reduce((height, block) => {
+    doc.font(block.font).fontSize(block.size);
+    return height + doc.heightOfString(textValue(block.text), { width });
+  }, 0);
+  ensurePdfSpace(doc, Math.min(printableHeight, textHeight + imageHeight + 12));
+}
+
+function embedPdfImage(doc, buffer, options, unavailableText) {
+  try {
+    doc.image(buffer, options);
+    return true;
+  } catch {
+    doc.font('Helvetica-Oblique').fontSize(9).text(unavailableText);
+    return false;
+  }
+}
+
 async function buildPdf(exportData, media) {
   const pdfMedia = await preparePdfMedia(media);
   return new Promise((resolve, reject) => {
@@ -576,15 +603,21 @@ async function buildPdf(exportData, media) {
       .filter((item) => item.kind === 'timeline')
       .map((item) => [Number(item.record.id), item]));
     addPdfSection(doc, 'Timeline', exportData.timeline, (item) => {
-      doc.font('Helvetica-Bold').fontSize(11).fillColor('#3d2a2f')
-        .text(`${textValue(item.milestone_date)} - ${textValue(item.title)}`);
-      doc.font('Helvetica').fontSize(10).text(textValue(item.description));
       const image = timelineMedia.get(Number(item.id));
+      const title = `${textValue(item.milestone_date)} - ${textValue(item.title)}`;
+      reservePdfItem(doc, [
+        { font: 'Helvetica-Bold', size: 11, text: title },
+        { font: 'Helvetica', size: 10, text: item.description },
+      ], image?.pdfBuffer ? 260 : 14);
+      doc.font('Helvetica-Bold').fontSize(11).fillColor('#3d2a2f')
+        .text(title);
+      doc.font('Helvetica').fontSize(10).text(textValue(item.description));
       if (image?.pdfBuffer) {
-        doc.image(image.pdfBuffer, {
+        ensurePdfSpace(doc, 260);
+        embedPdfImage(doc, image.pdfBuffer, {
           fit: [450, 260],
           align: 'center',
-        });
+        }, 'Timeline photo could not be embedded; its caption remains in this PDF.');
       } else if (image?.pdfStatus?.startsWith('skipped-')) {
         doc.font('Helvetica-Oblique').fontSize(9)
           .text('Timeline photo skipped because the PDF image safety budget was reached.');
@@ -597,18 +630,34 @@ async function buildPdf(exportData, media) {
       }
     });
     addPdfSection(doc, 'Journal', exportData.journals, (item) => {
+      const title = `${textValue(item.entry_date)} - ${textValue(item.title)}`;
+      reservePdfItem(doc, [
+        { font: 'Helvetica-Bold', size: 11, text: title },
+        { font: 'Helvetica', size: 10, text: item.body },
+      ]);
       doc.font('Helvetica-Bold').fontSize(11)
-        .text(`${textValue(item.entry_date)} - ${textValue(item.title)}`);
+        .text(title);
       doc.font('Helvetica').fontSize(10).text(textValue(item.body));
     });
     addPdfSection(doc, 'Completed bucket memories', exportData.completedBucketItems, (item) => {
+      const title = `${textValue(item.completed_at)} - ${textValue(item.title)}`;
+      const body = item.memory || item.description;
+      reservePdfItem(doc, [
+        { font: 'Helvetica-Bold', size: 11, text: title },
+        { font: 'Helvetica', size: 10, text: body },
+      ]);
       doc.font('Helvetica-Bold').fontSize(11)
-        .text(`${textValue(item.completed_at)} - ${textValue(item.title)}`);
-      doc.font('Helvetica').fontSize(10).text(textValue(item.memory || item.description));
+        .text(title);
+      doc.font('Helvetica').fontSize(10).text(textValue(body));
     });
     addPdfSection(doc, 'Shared events', exportData.events, (item) => {
+      const title = `${textValue(item.event_at)} - ${textValue(item.title)}`;
+      reservePdfItem(doc, [
+        { font: 'Helvetica-Bold', size: 11, text: title },
+        ...(item.notes ? [{ font: 'Helvetica', size: 10, text: item.notes }] : []),
+      ]);
       doc.font('Helvetica-Bold').fontSize(11)
-        .text(`${textValue(item.event_at)} - ${textValue(item.title)}`);
+        .text(title);
       if (item.notes) doc.font('Helvetica').fontSize(10).text(item.notes);
     });
 
@@ -616,18 +665,23 @@ async function buildPdf(exportData, media) {
     addPdfSection(doc, 'Albums and photos', pdfMedia.filter((item) => item.kind === 'album'), (item) => {
       const photo = item.record;
       const album = albumById.get(Number(photo.album_id));
+      const title = `${album?.title || 'Album'} - ${photo.caption || `Photo ${photo.id}`}`;
+      reservePdfItem(doc, [
+        { font: 'Helvetica-Bold', size: 11, text: title },
+      ], item.pdfBuffer ? 300 : 14);
       doc.font('Helvetica-Bold').fontSize(11)
-        .text(`${album?.title || 'Album'} - ${photo.caption || `Photo ${photo.id}`}`);
+        .text(title);
       if (!item.buffer) {
         doc.font('Helvetica-Oblique').fontSize(9).text('Photo file was missing or unreadable.');
       } else if (photo.media_type === 'image/webp') {
         doc.font('Helvetica-Oblique').fontSize(9)
           .text(`WebP photo included in ZIP as ${item.archivePath}.`);
       } else if (item.pdfBuffer) {
-        doc.image(item.pdfBuffer, {
+        ensurePdfSpace(doc, 300);
+        embedPdfImage(doc, item.pdfBuffer, {
           fit: [450, 300],
           align: 'center',
-        });
+        }, 'Photo could not be embedded; its caption remains in this PDF.');
       } else if (item.pdfStatus?.startsWith('skipped-')) {
         doc.font('Helvetica-Oblique').fontSize(9)
           .text('Photo skipped because the PDF image safety budget was reached.');
@@ -741,9 +795,12 @@ module.exports = {
   buildPrintableHtml,
   buildZip,
   createKeepsakeExportService,
+  embedPdfImage,
+  ensurePdfSpace,
   loadKeepsakeData,
   mediaArchiveName,
   preparePdfMedia,
+  reservePdfItem,
   safePdfImage,
   safeArchiveName,
 };
