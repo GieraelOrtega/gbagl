@@ -691,8 +691,10 @@ test('early revoke supersedes a higher stored authorization during restoration',
       'https://gba.gl/__gbagl-private-state__/7-authorized',
       response(JSON.stringify({
         authorized: true,
+        baseRevision: 0,
         cacheName,
         generation: 7,
+        schemaVersion: 2,
         version: 'v1',
       }), { contentType: 'application/json' }),
     ]])],
@@ -752,8 +754,10 @@ test('reconciliation tolerates a stale state key disappearing after listing', as
   const staleKey = 'https://gba.gl/__gbagl-private-state__/1-authorized';
   active.cacheData.get('gbagl-state-v1').set(staleKey, response(JSON.stringify({
     authorized: true,
+    baseRevision: 0,
     cacheName: 'gbagl-private-v1-stale-1',
     generation: 1,
+    schemaVersion: 2,
     version: 'v1',
   }), { contentType: 'application/json' }));
   active.state.stateMatchImpl = async (entries, key) => {
@@ -827,4 +831,152 @@ test('loss of the current auth record cannot fall back to an older tombstone', a
 
   assert.equal(replacement.hooks.state().accessAllowed, false);
   assert.equal(await offline.text(), 'safe offline shell');
+});
+
+test('authorization begun before a cross-worker revoke cannot grant afterward', async () => {
+  const seed = createWorkerHarness({ instance: 'worker-seed' });
+  await authorize(seed, 'initial snapshot');
+  const workerA = createWorkerHarness({
+    cacheData: seed.cacheData,
+    instance: 'worker-a',
+  });
+  const workerB = createWorkerHarness({
+    cacheData: seed.cacheData,
+    instance: 'worker-b',
+  });
+  await Promise.all([workerA.hooks.ready, workerB.hooks.ready]);
+  const observedBaseRevision = workerA.hooks.state().generation;
+  const pendingSnapshot = deferred();
+  workerA.state.fetchImpl = async () => pendingSnapshot.promise;
+  const staleGrant = workerA.hooks.authorizePrivateCache('https://gba.gl/timeline');
+
+  workerB.state.deleteImpl = async () => { throw new Error('disk failure'); };
+  await workerB.hooks.revokePrivateData();
+  pendingSnapshot.resolve(response('stale timeline', {
+    cacheOptIn: policy.SNAPSHOT_OPT_IN,
+  }));
+  await staleGrant;
+
+  const denied = await offlineNavigation(workerA);
+  assert.equal(workerA.hooks.state().accessAllowed, false);
+  assert.equal(await denied.text(), 'safe offline shell');
+  const recordsAfterStaleGrant = await Promise.all(
+    [...workerA.cacheData.get('gbagl-state-v1').values()]
+      .map((value) => value.clone().json()),
+  );
+  const latestRevocation = Math.max(...recordsAfterStaleGrant
+    .filter((value) => value.authorized === false)
+    .map((value) => value.generation));
+  assert.equal(recordsAfterStaleGrant.some((value) => (
+    value.authorized === true
+    && value.baseRevision < latestRevocation
+    && value.generation > latestRevocation
+  )), false);
+
+  const staleWriteRevision = latestRevocation + 1;
+  const staleCacheName = `gbagl-private-v1-worker-a-${staleWriteRevision}`;
+  workerA.cacheData.set(staleCacheName, new Map([
+    ['https://gba.gl/', response('synthetic stale resurrection')],
+  ]));
+  workerA.cacheData.get('gbagl-state-v1').set(
+    `https://gba.gl/__gbagl-private-state__/${staleWriteRevision}-authorized`,
+    response(JSON.stringify({
+      authorized: true,
+      baseRevision: observedBaseRevision,
+      cacheName: staleCacheName,
+      generation: staleWriteRevision,
+      schemaVersion: 2,
+      version: 'v1',
+    }), { contentType: 'application/json' }),
+  );
+  const resolver = createWorkerHarness({
+    cacheData: seed.cacheData,
+    instance: 'worker-resolver',
+  });
+  resolver.state.deleteImpl = async () => { throw new Error('disk failure'); };
+  await resolver.hooks.ready;
+  const staleResolution = await offlineNavigation(resolver);
+  assert.equal(resolver.hooks.state().accessAllowed, false);
+  assert.equal(await staleResolution.text(), 'safe offline shell');
+  assert.equal(resolver.state.privateMatchCalls, 0);
+
+  const workerC = createWorkerHarness({
+    cacheData: seed.cacheData,
+    instance: 'worker-c',
+  });
+  await workerC.hooks.ready;
+  await authorize(workerC, 'fresh post-revoke snapshot');
+  const allowed = await offlineNavigation(workerC);
+  assert.equal(workerC.hooks.state().accessAllowed, true);
+  assert.equal(await allowed.text(), 'fresh post-revoke snapshot');
+});
+
+test('legacy authorization records fail closed under the state schema bump', async () => {
+  const cacheName = 'gbagl-private-v1-legacy-worker-7';
+  const cacheData = new Map([
+    [cacheName, new Map([
+      ['https://gba.gl/', response('legacy private snapshot')],
+    ])],
+    ['gbagl-state-v1', new Map([[
+      'https://gba.gl/__gbagl-private-state__/7-authorized',
+      response(JSON.stringify({
+        authorized: true,
+        cacheName,
+        generation: 7,
+        version: 'v1',
+      }), { contentType: 'application/json' }),
+    ]])],
+  ]);
+  const upgraded = createWorkerHarness({
+    cacheData,
+    instance: 'worker-upgraded',
+  });
+  upgraded.state.deleteImpl = async () => { throw new Error('disk failure'); };
+  await upgraded.hooks.ready;
+  const offline = await offlineNavigation(upgraded);
+
+  assert.equal(upgraded.hooks.state().accessAllowed, false);
+  assert.equal(await offline.text(), 'safe offline shell');
+  assert.equal(upgraded.state.privateMatchCalls, 0);
+});
+
+test('slower authorization cannot overwrite a newer cross-worker grant', async () => {
+  const cacheData = new Map();
+  const workerA = createWorkerHarness({
+    cacheData,
+    instance: 'worker-a',
+  });
+  const workerB = createWorkerHarness({
+    cacheData,
+    instance: 'worker-b',
+  });
+  await Promise.all([workerA.hooks.ready, workerB.hooks.ready]);
+  const stalePutStarted = deferred();
+  const finishStalePut = deferred();
+  workerA.state.fetchImpl = async () => response('stale snapshot', {
+    cacheOptIn: policy.SNAPSHOT_OPT_IN,
+  });
+  workerA.state.putImpl = async (entries, key, value, cacheName) => {
+    entries.set(key, value.clone());
+    if (cacheName.startsWith('gbagl-private-v1-')) {
+      stalePutStarted.resolve();
+      await finishStalePut.promise;
+    }
+  };
+  const staleAuthorization = workerA.hooks.authorizePrivateCache('https://gba.gl/');
+  await stalePutStarted.promise;
+
+  await authorize(workerB, 'fresh snapshot');
+  finishStalePut.resolve();
+  await staleAuthorization;
+
+  const restarted = createWorkerHarness({
+    cacheData,
+    instance: 'worker-restarted',
+  });
+  await restarted.hooks.ready;
+  const offline = await offlineNavigation(restarted);
+
+  assert.equal(restarted.hooks.state().accessAllowed, true);
+  assert.equal(await offline.text(), 'fresh snapshot');
 });

@@ -9,6 +9,7 @@ const {
   buildZip,
   embedPdfImage,
   ensurePdfSpace,
+  loadExportMedia,
   loadKeepsakeData,
   mediaArchiveName,
   preparePdfMedia,
@@ -117,6 +118,92 @@ test('printable HTML and ZIP contain portable keepsake content without server pa
   assert.doesNotMatch(archiveText, /\.\.\/|runtime[\\/]uploads/);
 });
 
+test('invalid media does not consume the validated aggregate byte budget', async () => {
+  const valid = Buffer.alloc(21 * 1024 * 1024);
+  valid.set([0xff, 0xd8, 0xff]);
+  const corrupt = Buffer.alloc(25 * 1024 * 1024);
+  const buffers = new Map();
+  const photos = Array.from({ length: 6 }, (_, index) => {
+    const storageName = `${String(index + 1).padStart(32, '0')}.jpg`;
+    buffers.set(storageName, index === 5 ? corrupt : valid);
+    return {
+      album_id: 5,
+      id: index + 1,
+      media_type: 'image/jpeg',
+      storage_name: storageName,
+      storage_type: 'upload',
+    };
+  });
+  const dependencies = {
+    boundedRegularFile: async (filePath) => ({
+      path: filePath,
+      size: buffers.get(path.basename(filePath)).length,
+    }),
+    readFile: async (filePath) => buffers.get(path.basename(filePath)),
+  };
+
+  const media = await loadExportMedia(
+    { uploadDir: path.join(__dirname, 'virtual-uploads') },
+    photos,
+    [],
+    dependencies,
+  );
+
+  assert.equal(media.filter((item) => item.status === 'included').length, 5);
+  assert.equal(media.filter((item) => item.status === 'missing-or-unreadable').length, 1);
+
+  const aboveLimit = [...photos.slice(0, 5), ...photos.slice(0, 2).map(
+    (photo, index) => ({
+      ...photo,
+      id: 10 + index,
+      storage_name: photo.storage_name,
+    }),
+  )];
+  await assert.rejects(
+    loadExportMedia(
+      { uploadDir: path.join(__dirname, 'virtual-uploads') },
+      aboveLimit,
+      [],
+      dependencies,
+    ),
+    /(?:total export|inspection) limit/,
+  );
+
+  const corruptCandidate = Buffer.alloc(8 * 1024 * 1024);
+  const corruptBuffers = new Map();
+  const corruptPhotos = Array.from({ length: 17 }, (_, index) => {
+    const storageName = `${String(index + 100).padStart(32, '0')}.jpg`;
+    corruptBuffers.set(storageName, corruptCandidate);
+    return {
+      album_id: 5,
+      id: index + 100,
+      media_type: 'image/jpeg',
+      storage_name: storageName,
+      storage_type: 'upload',
+    };
+  });
+  let corruptReads = 0;
+  await assert.rejects(
+    loadExportMedia(
+      { uploadDir: path.join(__dirname, 'virtual-uploads') },
+      corruptPhotos,
+      [],
+      {
+        boundedRegularFile: async (filePath) => ({
+          path: filePath,
+          size: corruptBuffers.get(path.basename(filePath)).length,
+        }),
+        readFile: async (filePath) => {
+          corruptReads += 1;
+          return corruptBuffers.get(path.basename(filePath));
+        },
+      },
+    ),
+    /inspection limit/,
+  );
+  assert.equal(corruptReads, 16);
+});
+
 test('PDF output has a valid signature and relationship keepsake metadata', async () => {
   const pdf = await buildPdf(sampleExportData(), [{
     archivePath: 'media/albums/000005/photo-000006.webp',
@@ -180,6 +267,59 @@ test('PDF media preparation enforces aggregate pixel and image budgets', async (
   assert.equal(countLimited[0].pdfStatus, 'included');
   assert.equal(countLimited[1].pdfStatus, 'skipped-image-count-budget');
   assert.equal(countLimited[2].pdfStatus, 'skipped-image-count-budget');
+});
+
+test('PDF decoded-byte budget skips excess large PNGs before preparation', async () => {
+  const compressedFixture = Buffer.alloc(33);
+  Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(compressedFixture);
+  compressedFixture.writeUInt32BE(13, 8);
+  compressedFixture.write('IHDR', 12, 'ascii');
+  compressedFixture.writeUInt32BE(3500, 16);
+  compressedFixture.writeUInt32BE(3000, 20);
+  const media = Array.from({ length: 4 }, (_, index) => ({
+    archivePath: `media/albums/000005/photo-${String(index + 1).padStart(6, '0')}.png`,
+    buffer: compressedFixture,
+    kind: 'album',
+    mediaType: 'image/png',
+    record: {
+      album_id: 5,
+      caption: `Large PNG ${index + 1}`,
+      id: index + 1,
+      media_type: 'image/png',
+    },
+    status: 'included',
+  }));
+  let preparationCalls = 0;
+  const limits = {
+    prepareImage: async (buffer) => {
+      preparationCalls += 1;
+      return {
+        buffer,
+        decodedBytes: 3500 * 3000 * 4,
+        height: 3000,
+        width: 3500,
+      };
+    },
+  };
+
+  const prepared = await preparePdfMedia(media, limits);
+
+  assert.equal(preparationCalls, 2);
+  assert.deepEqual(
+    prepared.map((item) => item.pdfStatus),
+    [
+      'included',
+      'included',
+      'skipped-decoded-byte-budget',
+      'skipped-decoded-byte-budget',
+    ],
+  );
+
+  preparationCalls = 0;
+  const pdf = await buildPdf(sampleExportData(), media, limits);
+  assert.equal(pdf.subarray(0, 5).toString('ascii'), '%PDF-');
+  assert.equal(preparationCalls, 2);
+  assert.ok(pdf.length < 160 * 1024 * 1024);
 });
 
 test('PDF item planning moves image blocks that do not fit the printable area', () => {

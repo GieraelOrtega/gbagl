@@ -13,9 +13,11 @@ const EXPORT_SCHEMA_VERSION = 1;
 const MAX_EXPORT_PHOTOS = 500;
 const MAX_MEDIA_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_TOTAL_MEDIA_BYTES = 128 * 1024 * 1024;
+const MAX_TOTAL_INSPECTED_MEDIA_BYTES = 132 * 1024 * 1024;
 const MAX_OUTPUT_BYTES = 160 * 1024 * 1024;
 const MAX_PDF_IMAGE_PIXELS = 12 * 1024 * 1024;
 const MAX_PDF_TOTAL_PIXELS = 48 * 1024 * 1024;
+const MAX_PDF_DECODED_BYTES = 96 * 1024 * 1024;
 const MAX_PDF_IMAGES = 100;
 
 const EXPORT_QUERIES = Object.freeze({
@@ -224,27 +226,41 @@ async function boundedRegularFile(filePath, allowedRoot) {
   return { path: target, size: stat.size };
 }
 
-async function loadExportMedia(config, photos, timeline) {
+async function loadExportMedia(config, photos, timeline, dependencies = {}) {
+  const inspectFile = dependencies.boundedRegularFile || boundedRegularFile;
+  const readFile = dependencies.readFile || fs.promises.readFile;
   const timelineWithPhotos = timeline.filter((milestone) => milestone.photo);
   if (photos.length + timelineWithPhotos.length > MAX_EXPORT_PHOTOS) {
     throw new Error(`Keepsake export is limited to ${MAX_EXPORT_PHOTOS} photos`);
   }
+  let inspectedBytes = 0;
   let totalBytes = 0;
   const media = [];
   for (const photo of photos) {
     const archivePath = mediaArchiveName(photo);
     try {
       const filePath = resolveMediaPath(config, photo);
-      const file = await boundedRegularFile(filePath, mediaRoot(config, photo));
-      totalBytes += file.size;
-      if (totalBytes > MAX_TOTAL_MEDIA_BYTES) {
-        throw new Error('Keepsake media exceeds the total export limit');
+      const file = await inspectFile(filePath, mediaRoot(config, photo));
+      if (inspectedBytes + file.size > MAX_TOTAL_INSPECTED_MEDIA_BYTES) {
+        throw new Error('Keepsake media exceeds the inspection limit');
       }
-      const buffer = await fs.promises.readFile(file.path);
+      inspectedBytes += file.size;
+      const buffer = await readFile(file.path);
+      if (buffer.length > file.size) {
+        inspectedBytes += buffer.length - file.size;
+        if (inspectedBytes > MAX_TOTAL_INSPECTED_MEDIA_BYTES) {
+          throw new Error('Keepsake media exceeds the inspection limit');
+        }
+      }
       const detected = detectImageType(buffer);
       if (!detected || detected.mediaType !== photo.media_type) {
         throw new Error('Photo type does not match its stored metadata');
       }
+      if (
+        buffer.length > MAX_MEDIA_FILE_BYTES
+        || totalBytes + buffer.length > MAX_TOTAL_MEDIA_BYTES
+      ) throw new Error('Keepsake media exceeds the total export limit');
+      totalBytes += buffer.length;
       media.push({
         archivePath,
         buffer,
@@ -254,7 +270,7 @@ async function loadExportMedia(config, photos, timeline) {
         status: 'included',
       });
     } catch (error) {
-      if (/total export limit|limited to/.test(error.message)) throw error;
+      if (/total export limit|inspection limit|limited to/.test(error.message)) throw error;
       media.push({
         archivePath,
         buffer: null,
@@ -270,15 +286,26 @@ async function loadExportMedia(config, photos, timeline) {
     try {
       details = timelineMediaDetails(config, milestone);
       const publicRoot = path.resolve(config.publicDir || path.join(__dirname, '..', 'public'));
-      const file = await boundedRegularFile(details.filePath, publicRoot);
-      totalBytes += file.size;
-      if (totalBytes > MAX_TOTAL_MEDIA_BYTES) {
-        throw new Error('Keepsake media exceeds the total export limit');
+      const file = await inspectFile(details.filePath, publicRoot);
+      if (inspectedBytes + file.size > MAX_TOTAL_INSPECTED_MEDIA_BYTES) {
+        throw new Error('Keepsake media exceeds the inspection limit');
       }
-      const buffer = await fs.promises.readFile(file.path);
+      inspectedBytes += file.size;
+      const buffer = await readFile(file.path);
+      if (buffer.length > file.size) {
+        inspectedBytes += buffer.length - file.size;
+        if (inspectedBytes > MAX_TOTAL_INSPECTED_MEDIA_BYTES) {
+          throw new Error('Keepsake media exceeds the inspection limit');
+        }
+      }
       if (!hasExpectedTimelineSignature(buffer, details.mediaType)) {
         throw new Error('Timeline photo contents do not match the extension');
       }
+      if (
+        buffer.length > MAX_MEDIA_FILE_BYTES
+        || totalBytes + buffer.length > MAX_TOTAL_MEDIA_BYTES
+      ) throw new Error('Keepsake media exceeds the total export limit');
+      totalBytes += buffer.length;
       media.push({
         ...details,
         buffer,
@@ -287,7 +314,7 @@ async function loadExportMedia(config, photos, timeline) {
         status: 'included',
       });
     } catch (error) {
-      if (/total export limit|limited to/.test(error.message)) throw error;
+      if (/total export limit|inspection limit|limited to/.test(error.message)) throw error;
       const archivePath = details?.archivePath
         || safeArchiveName(`media/timeline/milestone-${String(milestone.id).padStart(6, '0')}.missing`);
       media.push({
@@ -466,24 +493,37 @@ function encodePng(decoded) {
   });
 }
 
-async function safePdfImage(buffer, mediaType) {
+async function preparePdfImage(buffer, mediaType) {
   if (mediaType === 'image/jpeg') {
-    jpegDimensions(buffer);
-    return buffer;
+    const dimensions = jpegDimensions(buffer);
+    return { buffer, ...dimensions };
   }
   if (mediaType !== 'image/png' || buffer.length < 33) {
     throw new Error('PDF image must be a JPEG or PNG');
   }
-  pngDimensions(buffer);
+  const dimensions = pngDimensions(buffer);
   const decoded = await decodePng(buffer);
   assertImageDimensions(decoded.width, decoded.height);
-  return encodePng(decoded);
+  return {
+    buffer: await encodePng(decoded),
+    decodedBytes: decoded.width * decoded.height * 4,
+    ...dimensions,
+    width: decoded.width,
+    height: decoded.height,
+  };
+}
+
+async function safePdfImage(buffer, mediaType) {
+  return (await preparePdfImage(buffer, mediaType)).buffer;
 }
 
 async function preparePdfMedia(media, limits = {}) {
-  const maxImages = limits.maxImages || MAX_PDF_IMAGES;
-  const maxTotalPixels = limits.maxTotalPixels || MAX_PDF_TOTAL_PIXELS;
+  const maxImages = limits.maxImages ?? MAX_PDF_IMAGES;
+  const maxTotalPixels = limits.maxTotalPixels ?? MAX_PDF_TOTAL_PIXELS;
+  const maxDecodedBytes = limits.maxDecodedBytes ?? MAX_PDF_DECODED_BYTES;
+  const prepareImage = limits.prepareImage || preparePdfImage;
   let candidateCount = 0;
+  let totalDecodedBytes = 0;
   let totalPixels = 0;
   const prepared = [];
   for (const item of media) {
@@ -504,12 +544,30 @@ async function preparePdfMedia(media, limits = {}) {
         ? jpegDimensions(item.buffer)
         : pngDimensions(item.buffer);
       const pixels = dimensions.width * dimensions.height;
+      const decodedBytes = mediaType === 'image/png' ? pixels * 4 : 0;
       if (totalPixels + pixels > maxTotalPixels) {
         result.pdfStatus = 'skipped-total-pixel-budget';
+      } else if (totalDecodedBytes + decodedBytes > maxDecodedBytes) {
+        result.pdfStatus = 'skipped-decoded-byte-budget';
       } else {
-        result.pdfBuffer = await safePdfImage(item.buffer, mediaType);
-        result.pdfStatus = 'included';
-        totalPixels += pixels;
+        const preparedImage = await prepareImage(item.buffer, mediaType);
+        const actualPixels = preparedImage.width * preparedImage.height;
+        const actualDecodedBytes = mediaType === 'image/png'
+          ? preparedImage.width * preparedImage.height * 4
+          : 0;
+        if (
+          totalPixels + actualPixels > maxTotalPixels
+          || totalDecodedBytes + actualDecodedBytes > maxDecodedBytes
+        ) {
+          result.pdfStatus = actualDecodedBytes > 0
+            ? 'skipped-decoded-byte-budget'
+            : 'skipped-total-pixel-budget';
+        } else {
+          result.pdfBuffer = preparedImage.buffer;
+          result.pdfStatus = 'included';
+          totalPixels += actualPixels;
+          totalDecodedBytes += actualDecodedBytes;
+        }
       }
     } catch {
       result.pdfStatus = 'invalid-or-unsupported';
@@ -559,8 +617,8 @@ function embedPdfImage(doc, buffer, options, unavailableText) {
   }
 }
 
-async function buildPdf(exportData, media) {
-  const pdfMedia = await preparePdfMedia(media);
+async function buildPdf(exportData, media, limits = {}) {
+  const pdfMedia = await preparePdfMedia(media, limits);
   return new Promise((resolve, reject) => {
     const chunks = [];
     let byteLength = 0;
@@ -798,6 +856,7 @@ module.exports = {
   embedPdfImage,
   ensurePdfSpace,
   loadKeepsakeData,
+  loadExportMedia,
   mediaArchiveName,
   preparePdfMedia,
   reservePdfItem,

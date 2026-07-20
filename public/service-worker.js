@@ -1,6 +1,7 @@
 importScripts('/js/pwaPolicy.js');
 
 const CACHE_VERSION = 'v1';
+const STATE_SCHEMA_VERSION = 2;
 const PUBLIC_CACHE = `gbagl-public-${CACHE_VERSION}`;
 const PRIVATE_CACHE_ROOT = 'gbagl-private-';
 const PRIVATE_CACHE_PREFIX = `${PRIVATE_CACHE_ROOT}${CACHE_VERSION}-`;
@@ -59,15 +60,18 @@ function revokedState(generation) {
     authorized: false,
     cacheName: null,
     generation,
+    schemaVersion: STATE_SCHEMA_VERSION,
     version: CACHE_VERSION,
   };
 }
 
-function authorizedState(generation, cacheName) {
+function authorizedState(generation, cacheName, baseRevision) {
   return {
     authorized: true,
+    baseRevision,
     cacheName,
     generation,
+    schemaVersion: STATE_SCHEMA_VERSION,
     version: CACHE_VERSION,
   };
 }
@@ -75,7 +79,10 @@ function authorizedState(generation, cacheName) {
 function validAuthorizedState(value, cacheNames) {
   return value
     && value.version === CACHE_VERSION
+    && value.schemaVersion === STATE_SCHEMA_VERSION
     && value.authorized === true
+    && Number.isSafeInteger(value.baseRevision)
+    && value.baseRevision >= 0
     && Number.isSafeInteger(value.generation)
     && value.generation > 0
     && typeof value.cacheName === 'string'
@@ -86,6 +93,7 @@ function validAuthorizedState(value, cacheNames) {
 function validStateRecord(value) {
   return value
     && value.version === CACHE_VERSION
+    && value.schemaVersion === STATE_SCHEMA_VERSION
     && typeof value.authorized === 'boolean'
     && Number.isSafeInteger(value.generation)
     && value.generation > 0;
@@ -118,13 +126,25 @@ async function readDurableState() {
   if (records.some((record) => !validStateRecord(record.value))) {
     throw new Error('Invalid private authorization state');
   }
-  records.sort((left, right) => (
+  const revocationRevisions = records
+    .filter((record) => record.value.authorized === false)
+    .map((record) => record.value.generation);
+  const effectiveRecords = records.filter((record) => (
+    record.value.authorized === false
+    || !revocationRevisions.some(
+      (revision) => revision > record.value.baseRevision,
+    )
+  ));
+  effectiveRecords.sort((left, right) => (
     right.value.generation - left.value.generation
     || Number(left.value.authorized) - Number(right.value.authorized)
   ));
   return {
     cacheNames,
-    current: records[0] || null,
+    current: effectiveRecords[0] || null,
+    maxRevocationRevision: revocationRevisions.length
+      ? Math.max(...revocationRevisions)
+      : 0,
     stateCache,
     stateRequests,
   };
@@ -364,11 +384,15 @@ async function putPrivateCacheEntry(
   return false;
 }
 
-async function persistAuthorizedState(cacheName) {
+async function persistAuthorizedState(cacheName, baseRevision) {
   const snapshot = await readDurableState();
-  if (revocationsPending > 0) return null;
+  if (
+    revocationsPending > 0
+    || (snapshot.current?.value?.generation || 0) !== baseRevision
+    || snapshot.maxRevocationRevision > baseRevision
+  ) return null;
   const generation = nextDurableGeneration(snapshot);
-  await persistStateRecord(authorizedState(generation, cacheName));
+  await persistStateRecord(authorizedState(generation, cacheName, baseRevision));
   return generation;
 }
 
@@ -392,12 +416,14 @@ function isCacheableSnapshot(response) {
 
 async function authorizePrivateCache(value, extendLifetime = () => {}) {
   await privateStateReady;
+  let authorizationSnapshot;
   try {
-    await reconcilePrivateState();
+    authorizationSnapshot = await reconcilePrivateState();
   } catch {
     return;
   }
   const authorizationGeneration = privateGeneration;
+  const authorizationBaseRevision = authorizationSnapshot.current?.value?.generation || 0;
   const canonicalUrl = policy.canonicalSnapshotUrl(value, self.location.origin);
   if (!canonicalUrl) return;
   const headers = new Headers({
@@ -451,7 +477,10 @@ async function authorizePrivateCache(value, extendLifetime = () => {}) {
       }
       let grantedGeneration;
       try {
-        grantedGeneration = await persistAuthorizedState(grantedCache);
+        grantedGeneration = await persistAuthorizedState(
+          grantedCache,
+          authorizationBaseRevision,
+        );
       } catch (error) {
         await cache.delete(request);
         throw error;
