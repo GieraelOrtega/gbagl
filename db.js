@@ -12,6 +12,31 @@ let pool = null;
 let dbAvailable = false;
 const TIMELINE_IMPORT_MARKER = 'timeline_import_complete';
 
+function buildPoolOptions(env = process.env) {
+  const socketPath = typeof env.DB_SOCKET === 'string'
+    ? env.DB_SOCKET.trim()
+    : '';
+  const connection = socketPath
+    ? { socketPath }
+    : {
+      host: env.DB_HOST || 'localhost',
+      port: parseInt(env.DB_PORT || '3306', 10),
+    };
+
+  return {
+    ...connection,
+    user: env.DB_USER || 'root',
+    password: env.DB_PASSWORD || '',
+    database: env.DB_NAME || 'gbagl',
+    waitForConnections: true,
+    connectionLimit: 10,
+    timezone: 'Z',
+    dateStrings: true,
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 30000,
+  };
+}
+
 /**
  * initDb — call once at startup.
  * Creates the connection pool, tests connectivity, and ensures
@@ -19,20 +44,7 @@ const TIMELINE_IMPORT_MARKER = 'timeline_import_complete';
  */
 async function initDb() {
   try {
-    pool = mysql.createPool({
-      host:     process.env.DB_HOST     || 'localhost',
-      port:     parseInt(process.env.DB_PORT || '3306', 10),
-      user:     process.env.DB_USER     || 'root',
-      password: process.env.DB_PASSWORD || '',
-      database: process.env.DB_NAME     || 'gbagl',
-      waitForConnections: true,
-      connectionLimit: 10,
-      timezone: 'Z',
-      dateStrings: true,
-      // Reconnect automatically if the DB drops briefly
-      enableKeepAlive: true,
-      keepAliveInitialDelay: 30000,
-    });
+    pool = mysql.createPool(buildPoolOptions());
 
     // Test that we can actually connect
     const conn = await pool.getConnection();
@@ -258,6 +270,7 @@ function isDbAvailable() {
 
 module.exports = {
   TIMELINE_IMPORT_MARKER,
+  buildPoolOptions,
   getPool,
   importTimelineOnce,
   initDb,

@@ -40,7 +40,18 @@ All HTML form writes use CSRF tokens. Missing or invalid tokens receive an expli
 
 ## Database and migrations
 
-Configure `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, and `DB_NAME`. On startup the app idempotently creates these application-owned tables:
+Configure `DB_USER`, `DB_PASSWORD`, and `DB_NAME`, plus either `DB_SOCKET` or the TCP settings `DB_HOST` and `DB_PORT`. A nonblank `DB_SOCKET` takes precedence and omits host and port from the MySQL connection. On startup the app idempotently creates these application-owned tables:
+
+Gandi Simple Hosting exposes MySQL through a Unix socket rather than TCP. Its standard database configuration is:
+
+```env
+DB_SOCKET=/srv/run/mysqld/mysqld.sock
+DB_USER=root
+DB_PASSWORD=
+DB_NAME=default_db
+```
+
+With `DB_SOCKET` set, `DB_HOST` and `DB_PORT` are ignored. Keep the empty password only when using Gandi's local socket defaults; use the credentials supplied by the host if they have been changed.
 
 - `date_ideas`
 - `site_settings`
