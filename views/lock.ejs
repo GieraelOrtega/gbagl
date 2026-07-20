@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title><%= title %></title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body class="lock-screen">
+  <main class="lock-screen__main">
+    <div class="lock-screen__glow" aria-hidden="true"></div>
+
+    <section class="passcode" aria-labelledby="passcode-title">
+      <div class="passcode__lock" aria-hidden="true">
+        <span class="passcode__shackle"></span>
+      </div>
+      <p class="passcode__eyebrow">GBAGL</p>
+      <h1 class="passcode__title" id="passcode-title">Enter Passcode</h1>
+      <p class="passcode__hint">This little corner of the internet is private.</p>
+
+      <form class="passcode__form<%= error ? ' passcode__form--error' : '' %>"
+            action="/unlock" method="post" id="passcodeForm">
+        <input type="hidden" name="next" value="<%= next %>" />
+        <label class="visually-hidden" for="passcodeInput">4-digit passcode</label>
+        <input class="passcode__input" id="passcodeInput" name="passcode"
+               type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4"
+               autocomplete="off" autofocus required />
+
+        <div class="passcode__dots" aria-hidden="true">
+          <% for (let i = 0; i < 4; i += 1) { %>
+            <span class="passcode__dot"></span>
+          <% } %>
+        </div>
+
+        <p class="passcode__message" id="passcodeMessage" aria-live="polite">
+          <%= error || '' %>
+        </p>
+
+        <div class="keypad" aria-label="Numeric keypad">
+          <% for (let number = 1; number <= 9; number += 1) { %>
+            <button class="keypad__key" type="button" data-digit="<%= number %>">
+              <span><%= number %></span>
+            </button>
+          <% } %>
+          <span></span>
+          <button class="keypad__key" type="button" data-digit="0"><span>0</span></button>
+          <button class="keypad__delete" type="button" id="passcodeDelete"
+                  aria-label="Delete last digit">Delete</button>
+        </div>
+
+        <button class="passcode__submit" type="submit">Unlock</button>
+      </form>
+    </section>
+  </main>
+  <script src="/js/lock.js"></script>
+</body>
+</html>

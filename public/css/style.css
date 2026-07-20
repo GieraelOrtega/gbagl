@@ -76,6 +76,209 @@ body {
   flex-direction: column;
 }
 
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── Passcode lock screen ───────────────────────────────────── */
+.lock-screen {
+  background:
+    radial-gradient(circle at 50% 15%, rgba(255, 210, 222, 0.32), transparent 35%),
+    linear-gradient(160deg, #412b47 0%, #24192d 45%, #11101b 100%);
+  color: #fff;
+  min-height: 100svh;
+}
+
+.lock-screen__main {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 100svh;
+  padding: max(2rem, env(safe-area-inset-top)) 1.25rem
+           max(2rem, env(safe-area-inset-bottom));
+  overflow: hidden;
+}
+
+.lock-screen__glow {
+  position: absolute;
+  inset: auto auto 7% -8rem;
+  width: 26rem;
+  height: 26rem;
+  border-radius: 50%;
+  background: rgba(232, 103, 122, 0.17);
+  filter: blur(60px);
+}
+
+.passcode {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 390px);
+  text-align: center;
+}
+
+.passcode__lock {
+  position: relative;
+  width: 30px;
+  height: 24px;
+  margin: 0 auto 1.25rem;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.passcode__shackle {
+  position: absolute;
+  left: 6px;
+  bottom: 16px;
+  width: 18px;
+  height: 16px;
+  border: 4px solid rgba(255, 255, 255, 0.94);
+  border-bottom: 0;
+  border-radius: 12px 12px 0 0;
+}
+
+.passcode__eyebrow {
+  margin-bottom: 0.25rem;
+  color: rgba(255, 255, 255, 0.66);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+}
+
+.passcode__title {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: clamp(1.65rem, 7vw, 2rem);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+.passcode__hint {
+  margin-top: 0.45rem;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 0.9rem;
+}
+
+.passcode__form {
+  position: relative;
+  margin-top: 1.75rem;
+}
+
+.passcode__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.passcode__dots {
+  display: flex;
+  justify-content: center;
+  gap: 1.1rem;
+  height: 15px;
+}
+
+.passcode__dot {
+  width: 13px;
+  height: 13px;
+  border: 1.5px solid rgba(255, 255, 255, 0.9);
+  border-radius: 50%;
+  transition: background 0.12s, transform 0.12s;
+}
+
+.passcode__dot--filled {
+  background: #fff;
+  transform: scale(1.08);
+}
+
+.passcode__message {
+  min-height: 1.3rem;
+  margin: 0.7rem 0 0.5rem;
+  color: #ffd2da;
+  font-size: 0.82rem;
+}
+
+.passcode__form--error .passcode__dots {
+  animation: passcode-shake 0.4s ease;
+}
+
+.keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 74px);
+  justify-content: center;
+  gap: 13px 24px;
+}
+
+.keypad__key {
+  width: 74px;
+  height: 74px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  cursor: pointer;
+  font: 300 2rem/1 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.12s, transform 0.08s;
+}
+
+.keypad__key:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.keypad__key:active {
+  background: rgba(255, 255, 255, 0.34);
+  transform: scale(0.94);
+}
+
+.keypad__key:focus-visible,
+.keypad__delete:focus-visible,
+.passcode__submit:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 3px;
+}
+
+.keypad__delete {
+  border: 0;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  font: 500 0.85rem/1 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.passcode__submit {
+  margin-top: 1.25rem;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.72);
+  cursor: pointer;
+  font: 500 0.85rem/1 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+@keyframes passcode-shake {
+  20%, 60% { transform: translateX(-8px); }
+  40%, 80% { transform: translateX(8px); }
+}
+
+@media (max-height: 700px) {
+  .lock-screen__main { padding-block: 1.25rem; }
+  .passcode__lock { margin-bottom: 0.75rem; }
+  .passcode__form { margin-top: 1rem; }
+  .keypad { grid-template-columns: repeat(3, 62px); gap: 8px 20px; }
+  .keypad__key { width: 62px; height: 62px; font-size: 1.7rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .passcode__form--error .passcode__dots { animation: none; }
+}
+
 main {
   flex: 1;
 }
