@@ -70,11 +70,11 @@ test('service worker implements version cleanup, auth purge, and explicit clear 
   assert.match(source, /X-GBAGL-Authorization-Lost/);
   assert.match(source, /CLEAR_PRIVATE_DATA/);
   assert.match(source, /AUTHORIZE_PRIVATE_CACHE/);
-  assert.match(source, /expectedGeneration !== privateGeneration/);
+  assert.match(source, /authorizationGeneration !== privateGeneration/);
   assert.match(source, /withPrivateCache/);
   assert.match(source, /mutationResponse/);
-  assert.match(source, /url\.pathname === '\/lock'/);
-  assert.match(source, /cacheReadOnlySnapshot/);
+  assert.match(source, /url\.pathname !== '\/lock'/);
+  assert.match(source, /authorizePrivateCache/);
   assert.doesNotMatch(source, /\/admin\/|feed\.json|backups/);
 });
 
