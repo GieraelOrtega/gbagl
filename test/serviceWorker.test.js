@@ -30,8 +30,8 @@ function response(body, {
 
 function createWorkerHarness(options = {}) {
   const cacheData = options.cacheData || new Map();
-  if (!cacheData.has('gbagl-public-v1')) {
-    cacheData.set('gbagl-public-v1', new Map([
+  if (!cacheData.has('gbagl-public-v2')) {
+    cacheData.set('gbagl-public-v2', new Map([
       ['/offline.html', response('safe offline shell', { status: 503 })],
     ]));
   }
@@ -63,7 +63,7 @@ function createWorkerHarness(options = {}) {
       return [...cacheData.keys()];
     },
     async match(request, options = {}) {
-      if (options.cacheName?.startsWith('gbagl-private-v1-')) {
+      if (options.cacheName?.startsWith('gbagl-private-v2-')) {
         state.privateMatchCalls += 1;
       }
       return cacheData.get(options.cacheName)?.get(cacheKey(request))?.clone();
@@ -74,19 +74,19 @@ function createWorkerHarness(options = {}) {
       return {
         async addAll() {},
         async keys() {
-          if (name === 'gbagl-state-v1' && state.stateReadError) {
+          if (name === 'gbagl-state-v2' && state.stateReadError) {
             throw new Error('state read failure');
           }
-          const keys = name === 'gbagl-state-v1'
+          const keys = name === 'gbagl-state-v2'
             ? await state.stateKeysImpl(entries)
             : [...entries.keys()];
           return keys.map((key) => new Request(key));
         },
         async match(request) {
-          if (name === 'gbagl-state-v1' && state.stateReadError) {
+          if (name === 'gbagl-state-v2' && state.stateReadError) {
             throw new Error('state read failure');
           }
-          if (name === 'gbagl-state-v1') {
+          if (name === 'gbagl-state-v2') {
             return state.stateMatchImpl(entries, cacheKey(request));
           }
           return entries.get(cacheKey(request))?.clone();
@@ -310,7 +310,7 @@ test('purge failure remains revoked and cannot expose disk residue', async () =>
   await harness.hooks.revokePrivateData();
   assert.equal(harness.hooks.state().accessAllowed, false);
   const residueCache = [...harness.cacheData.entries()].find(
-    ([name]) => name.startsWith('gbagl-private-v1-'),
+    ([name]) => name.startsWith('gbagl-private-v2-'),
   );
   assert.equal(residueCache[1].size, 1);
 
@@ -425,7 +425,7 @@ test('revocation prevents an older in-flight media response from caching', async
   assert.equal(await networkResponse.text(), 'photo');
   assert.equal(
     [...harness.cacheData.entries()]
-      .filter(([name]) => name.startsWith('gbagl-private-v1-'))
+      .filter(([name]) => name.startsWith('gbagl-private-v2-'))
       .some(([, entries]) => entries.has(mediaRequest.url)),
     false,
   );
@@ -479,7 +479,7 @@ test('auth loss returns immediately and backgrounds independent revocation clean
   void lifetimes[0].then(() => { cleanupSettled = true; });
   await Promise.resolve();
   assert.equal(cleanupSettled, false);
-  const revokedRecord = [...harness.cacheData.get('gbagl-state-v1').entries()]
+  const revokedRecord = [...harness.cacheData.get('gbagl-state-v2').entries()]
     .find(([key]) => key.endsWith('-revoked'));
   const stored = await revokedRecord[1].clone().json();
   assert.equal(stored.authorized, false);
@@ -555,7 +555,8 @@ test('worker restart purges old-version and orphaned private caches', async () =
   await authorize(first, 'current snapshot');
   const active = first.hooks.state().cacheName;
   first.cacheData.set('gbagl-private-v0-old-1', new Map());
-  first.cacheData.set('gbagl-private-v1-orphan-9', new Map());
+  first.cacheData.set('gbagl-private-v1-prior-worker-4', new Map());
+  first.cacheData.set('gbagl-private-v2-orphan-9', new Map());
 
   const restarted = createWorkerHarness({
     cacheData: first.cacheData,
@@ -566,7 +567,8 @@ test('worker restart purges old-version and orphaned private caches', async () =
 
   assert.equal(restarted.cacheData.has(active), true);
   assert.equal(restarted.cacheData.has('gbagl-private-v0-old-1'), false);
-  assert.equal(restarted.cacheData.has('gbagl-private-v1-orphan-9'), false);
+  assert.equal(restarted.cacheData.has('gbagl-private-v1-prior-worker-4'), false);
+  assert.equal(restarted.cacheData.has('gbagl-private-v2-orphan-9'), false);
 });
 
 test('authorization state write failure keeps private access revoked', async () => {
@@ -623,7 +625,7 @@ test('stale authorized state write cannot overwrite a newer durable revocation',
   const revocation = first.hooks.revokePrivateData();
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(
-    [...first.cacheData.get('gbagl-state-v1').keys()]
+    [...first.cacheData.get('gbagl-state-v2').keys()]
       .some((key) => key.endsWith('-revoked')),
     true,
   );
@@ -655,14 +657,14 @@ test('tombstone supersedes authorization when the primary revoked-state write fa
     entries.set(key, value.clone());
   };
   first.state.deleteImpl = async (name) => {
-    if (name === 'gbagl-state-v1') return first.cacheData.delete(name);
+    if (name === 'gbagl-state-v2') return first.cacheData.delete(name);
     throw new Error('private deletion failure');
   };
 
   await first.hooks.revokePrivateData();
   assert.equal(first.cacheData.has(privateCache), true);
-  assert.equal(first.cacheData.has('gbagl-state-v1'), true);
-  assert.equal(first.cacheData.has('gbagl-revocation-v1'), true);
+  assert.equal(first.cacheData.has('gbagl-state-v2'), true);
+  assert.equal(first.cacheData.has('gbagl-revocation-v2'), true);
 
   const restarted = createWorkerHarness({
     cacheData: first.cacheData,
@@ -677,7 +679,7 @@ test('tombstone supersedes authorization when the primary revoked-state write fa
 
 test('corrupt state fails closed and self-heals for later authorization', async () => {
   const cacheData = new Map([
-    ['gbagl-state-v1', new Map([[
+    ['gbagl-state-v2', new Map([[
       'https://gba.gl/__gbagl-private-state__/corrupt',
       new Response('{not-json', {
         headers: { 'Content-Type': 'application/json' },
@@ -704,15 +706,15 @@ test('corrupt state fails closed and self-heals for later authorization', async 
 });
 
 test('early revoke supersedes a higher stored authorization during restoration', async () => {
-  const cacheName = 'gbagl-private-v1-old-worker-7';
+  const cacheName = 'gbagl-private-v2-old-worker-7';
   const cacheData = new Map([
-    ['gbagl-public-v1', new Map([
+    ['gbagl-public-v2', new Map([
       ['/offline.html', response('safe offline shell', { status: 503 })],
     ])],
     [cacheName, new Map([
       ['https://gba.gl/', response('generation seven snapshot')],
     ])],
-    ['gbagl-state-v1', new Map([[
+    ['gbagl-state-v2', new Map([[
       'https://gba.gl/__gbagl-private-state__/7-authorized',
       response(JSON.stringify({
         authorized: true,
@@ -720,7 +722,7 @@ test('early revoke supersedes a higher stored authorization during restoration',
         cacheName,
         generation: 7,
         schemaVersion: 2,
-        version: 'v1',
+        version: 'v2',
       }), { contentType: 'application/json' }),
     ]])],
   ]);
@@ -777,13 +779,13 @@ test('reconciliation tolerates a stale state key disappearing after listing', as
   const active = createWorkerHarness({ instance: 'worker-active' });
   await authorize(active, 'current snapshot');
   const staleKey = 'https://gba.gl/__gbagl-private-state__/1-authorized';
-  active.cacheData.get('gbagl-state-v1').set(staleKey, response(JSON.stringify({
+  active.cacheData.get('gbagl-state-v2').set(staleKey, response(JSON.stringify({
     authorized: true,
     baseRevision: 0,
-    cacheName: 'gbagl-private-v1-stale-1',
+    cacheName: 'gbagl-private-v2-stale-1',
     generation: 1,
     schemaVersion: 2,
-    version: 'v1',
+    version: 'v2',
   }), { contentType: 'application/json' }));
   active.state.stateMatchImpl = async (entries, key) => {
     if (key === staleKey) {
@@ -804,13 +806,13 @@ test('independent tombstone defeats surviving auth after primary revoke failures
   await authorize(active, 'private residue');
   const privateCache = active.hooks.state().cacheName;
   active.state.putImpl = async (entries, key, value, cacheName) => {
-    if (cacheName === 'gbagl-state-v1' && key.endsWith('-revoked')) {
+    if (cacheName === 'gbagl-state-v2' && key.endsWith('-revoked')) {
       throw new Error('primary revoked-state write failure');
     }
     entries.set(key, value.clone());
   };
   active.state.deleteImpl = async (name) => {
-    if (name === 'gbagl-state-v1' || name === privateCache) {
+    if (name === 'gbagl-state-v2' || name === privateCache) {
       throw new Error('primary deletion failure');
     }
     return active.cacheData.delete(name);
@@ -818,7 +820,7 @@ test('independent tombstone defeats surviving auth after primary revoke failures
 
   await active.hooks.revokePrivateData();
   assert.equal(active.cacheData.has(privateCache), true);
-  assert.equal(active.cacheData.has('gbagl-state-v1'), true);
+  assert.equal(active.cacheData.has('gbagl-state-v2'), true);
 
   const restarted = createWorkerHarness({
     cacheData: active.cacheData,
@@ -848,7 +850,7 @@ test('loss of the current auth record cannot fall back to an older tombstone', a
   await replacement.hooks.ready;
   await replacement.hooks.maintenance();
   assert.equal(replacement.hooks.state().accessAllowed, true);
-  const stateEntries = replacement.cacheData.get('gbagl-state-v1');
+  const stateEntries = replacement.cacheData.get('gbagl-state-v2');
   const currentAuthKey = [...stateEntries.keys()].find((key) => key.endsWith('-authorized'));
   stateEntries.delete(currentAuthKey);
 
@@ -886,7 +888,7 @@ test('authorization begun before a cross-worker revoke cannot grant afterward', 
   assert.equal(workerA.hooks.state().accessAllowed, false);
   assert.equal(await denied.text(), 'safe offline shell');
   const recordsAfterStaleGrant = await Promise.all(
-    [...workerA.cacheData.get('gbagl-state-v1').values()]
+    [...workerA.cacheData.get('gbagl-state-v2').values()]
       .map((value) => value.clone().json()),
   );
   const latestRevocation = Math.max(...recordsAfterStaleGrant
@@ -899,11 +901,11 @@ test('authorization begun before a cross-worker revoke cannot grant afterward', 
   )), false);
 
   const staleWriteRevision = latestRevocation + 1;
-  const staleCacheName = `gbagl-private-v1-worker-a-${staleWriteRevision}`;
+  const staleCacheName = `gbagl-private-v2-worker-a-${staleWriteRevision}`;
   workerA.cacheData.set(staleCacheName, new Map([
     ['https://gba.gl/', response('synthetic stale resurrection')],
   ]));
-  workerA.cacheData.get('gbagl-state-v1').set(
+  workerA.cacheData.get('gbagl-state-v2').set(
     `https://gba.gl/__gbagl-private-state__/${staleWriteRevision}-authorized`,
     response(JSON.stringify({
       authorized: true,
@@ -911,7 +913,7 @@ test('authorization begun before a cross-worker revoke cannot grant afterward', 
       cacheName: staleCacheName,
       generation: staleWriteRevision,
       schemaVersion: 2,
-      version: 'v1',
+      version: 'v2',
     }), { contentType: 'application/json' }),
   );
   const resolver = createWorkerHarness({
@@ -937,18 +939,18 @@ test('authorization begun before a cross-worker revoke cannot grant afterward', 
 });
 
 test('legacy authorization records fail closed under the state schema bump', async () => {
-  const cacheName = 'gbagl-private-v1-legacy-worker-7';
+  const cacheName = 'gbagl-private-v2-legacy-worker-7';
   const cacheData = new Map([
     [cacheName, new Map([
       ['https://gba.gl/', response('legacy private snapshot')],
     ])],
-    ['gbagl-state-v1', new Map([[
+    ['gbagl-state-v2', new Map([[
       'https://gba.gl/__gbagl-private-state__/7-authorized',
       response(JSON.stringify({
         authorized: true,
         cacheName,
         generation: 7,
-        version: 'v1',
+        version: 'v2',
       }), { contentType: 'application/json' }),
     ]])],
   ]);
@@ -983,7 +985,7 @@ test('slower authorization cannot overwrite a newer cross-worker grant', async (
   });
   workerA.state.putImpl = async (entries, key, value, cacheName) => {
     entries.set(key, value.clone());
-    if (cacheName.startsWith('gbagl-private-v1-')) {
+    if (cacheName.startsWith('gbagl-private-v2-')) {
       stalePutStarted.resolve();
       await finishStalePut.promise;
     }

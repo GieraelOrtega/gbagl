@@ -50,6 +50,15 @@ test('every ordered content surface exposes protected reorder metadata', () => {
   assert.match(client, /data-move-direction/);
   assert.match(client, /Content-Type': 'application\/json/);
   assert.match(client, /_csrf: csrfToken/);
+  assert.match(client, /position \$\{items\.indexOf\(item\) \+ 1\} of \$\{items\.length\}/);
+  assert.match(client, /Reordering enabled\. Drag items or use Up and Down/);
+  assert.match(client, /event\.key !== 'Escape'/);
+  assert.match(client, /cancelActiveDrag\(\)/);
+  assert.match(client, /data-reorder-busy/);
+  assert.match(client, /data-reorder-boundary/);
+  assert.match(client, /\.then\(\(saved\) =>/);
+  assert.doesNotMatch(client, /control\.disabled = busy/);
+  assert.doesNotMatch(client, /up\.disabled = index/);
 
   const albums = read('views/albums.ejs');
   assert.ok(
@@ -62,6 +71,7 @@ test('timeline edit mode exposes granular forms for every milestone', () => {
   const timeline = read('views/timeline.ejs');
   assert.match(timeline, /data-timeline-edit-toggle/);
   assert.match(timeline, /data-timeline-edit-controls/);
+  assert.match(timeline, /aria-controls="timeline-edit-controls"/);
   assert.match(timeline, /action="\/timeline\/<%= milestone.id %>"/);
   assert.match(timeline, /partials\/milestone-fields/);
   assert.doesNotMatch(read('views/partials/milestone-fields.ejs'), /name="display_order"/);

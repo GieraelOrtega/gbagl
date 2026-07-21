@@ -8,14 +8,14 @@
   const MEDIA_OPT_IN = 'media-v1';
   const PUBLIC_SHELL_PATHS = Object.freeze([
     '/offline.html',
-    '/css/style.css',
+    '/css/style.css?v=gk-ux-1',
     '/js/lock.js',
     '/js/pwa.js',
-    '/js/pwaPolicy.js',
+    '/js/pwaPolicy.js?v=gk-ux-1',
     '/js/theme.js',
-    '/manifest.webmanifest',
-    '/icons/icon-192.png',
-    '/icons/icon-512.png',
+    '/manifest.webmanifest?v=gk-ux-1',
+    '/icons/icon-192.png?v=gk-ux-1',
+    '/icons/icon-512.png?v=gk-ux-1',
   ]);
 
   function isPrivateSnapshotPath(pathname) {

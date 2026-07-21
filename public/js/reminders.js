@@ -29,7 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }`,
         tag: `gbagl-event-${reminder.id}`,
         data: { url: reminder.url },
-        icon: '/icons/icon-192.png',
+        icon: '/icons/icon-192.png?v=gk-ux-1',
       };
       const show = async () => {
         const registration = 'serviceWorker' in navigator

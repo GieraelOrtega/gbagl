@@ -126,6 +126,30 @@ body {
   border: 0;
 }
 
+.skip-link {
+  position: fixed;
+  top: var(--space-sm);
+  left: var(--space-sm);
+  z-index: 1000;
+  padding: 0.65rem 1rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-card);
+  color: var(--color-primary-dark);
+  font-weight: 800;
+  box-shadow: var(--shadow-md);
+  transform: translateY(calc(-100% - 1rem));
+  transition: transform 0.15s;
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}
+
+:where(a, button, summary):focus-visible {
+  outline: 3px solid var(--color-primary);
+  outline-offset: 3px;
+}
+
 /* ── Passcode lock screen ───────────────────────────────────── */
 .lock-screen {
   background:
@@ -495,6 +519,7 @@ h1, h2, h3, h4 {
   color: #fff;
   cursor: pointer;
   font: 700 0.9rem var(--font-body);
+  min-height: 44px;
   padding: 0.65rem 1.2rem;
 }
 .passcode__install:hover {
@@ -529,6 +554,10 @@ h1, h2, h3, h4 {
   cursor: pointer;
   background: none;
   border: none;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
   padding: var(--space-sm);
 }
 
@@ -591,6 +620,8 @@ h1, h2, h3, h4 {
   border-radius: var(--radius-sm);
   cursor: pointer;
   font-size: 1rem;
+  min-width: 44px;
+  min-height: 44px;
   padding: 0.3rem 0.55rem;
   transition: background-color 0.15s, transform 0.1s;
   line-height: 1;
@@ -600,15 +631,32 @@ h1, h2, h3, h4 {
 
 /* ── Alert / Flash messages ─────────────────────────────────── */
 .alert {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
   padding: var(--space-md) var(--space-lg);
   border-radius: var(--radius-md);
   margin-bottom: var(--space-lg);
   font-weight: 700;
   font-size: 0.95rem;
+  transition: opacity 0.2s, transform 0.2s;
 }
 .alert--success  { background: var(--color-success-bg); color: var(--color-success-text); }
 .alert--error    { background: var(--color-error-bg);   color: var(--color-error-text); }
 .alert--warning  { background: var(--color-warning-bg); color: var(--color-warning-text); }
+.alert--leaving  { opacity: 0; transform: translateY(-0.25rem); }
+.alert__dismiss {
+  flex: 0 0 auto;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: 700 0.78rem var(--font-body);
+  min-height: 44px;
+  padding: 0.25rem 0.7rem;
+}
 
 /* ── Cards ─────────────────────────────────────────────────── */
 .card {
@@ -880,10 +928,13 @@ h1, h2, h3, h4 {
 
 .editor-panel > summary,
 .item-editor > summary {
+  display: flex;
+  align-items: center;
   color: var(--color-primary-dark);
   cursor: pointer;
   font-weight: 800;
   list-style-position: inside;
+  min-height: 44px;
 }
 
 .editor-panel[open] > summary,
@@ -953,6 +1004,8 @@ h1, h2, h3, h4 {
   color: var(--color-text);
   cursor: pointer;
   font: 700 0.78rem var(--font-body);
+  min-width: 44px;
+  min-height: 44px;
   padding: 0.45rem 0.65rem;
 }
 
@@ -966,9 +1019,12 @@ h1, h2, h3, h4 {
 }
 
 .reorder-step:disabled,
-.drag-handle:disabled {
+.drag-handle:disabled,
+.reorder-step[aria-disabled='true'],
+.drag-handle[aria-disabled='true'] {
   cursor: not-allowed;
   opacity: 0.45;
+  pointer-events: none;
 }
 
 [data-reordering] > [data-reorder-item] {
@@ -1272,6 +1328,10 @@ h1, h2, h3, h4 {
 
 /* ── Mobile nav ─────────────────────────────────────────────── */
 @media (max-width: 900px) {
+  body.nav-open {
+    overflow: hidden;
+  }
+
   .nav__toggle {
     display: flex;
   }
@@ -1285,13 +1345,24 @@ h1, h2, h3, h4 {
     background: var(--color-bg);
     border-bottom: 1px solid var(--color-border);
     flex-direction: column;
+    max-height: calc(100dvh - 64px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
     padding: var(--space-md) var(--space-lg);
     gap: var(--space-md);
     box-shadow: var(--shadow-md);
+    -webkit-overflow-scrolling: touch;
   }
 
   .nav__links.nav__links--open {
     display: flex;
+  }
+
+  .nav__link {
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+    width: 100%;
   }
 
   /* Single-column timeline on mobile */

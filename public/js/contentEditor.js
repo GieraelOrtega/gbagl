@@ -37,14 +37,43 @@ document.addEventListener('DOMContentLoaded', () => {
       .find((status) => status.dataset.reorderStatus === group);
   }
 
+  function itemLabel(item) {
+    const label = item.querySelector('[data-drag-handle]')?.getAttribute('aria-label');
+    return label
+      ? label.replace(/^Drag\s+/, '').replace(/\s+to a new position$/, '')
+      : 'Item';
+  }
+
+  function itemPosition(group, item) {
+    const items = itemsFor(group);
+    return `${itemLabel(item)} is now position ${items.indexOf(item) + 1} of ${items.length}.`;
+  }
+
+  function syncDisabledState(control) {
+    if (
+      control.hasAttribute('data-reorder-boundary')
+      || control.hasAttribute('data-reorder-busy')
+    ) {
+      control.setAttribute('aria-disabled', 'true');
+    } else {
+      control.removeAttribute('aria-disabled');
+    }
+  }
+
   function updateMoveButtons(group) {
     listsFor(group).forEach((list) => {
       const items = Array.from(list.querySelectorAll(':scope > [data-reorder-item]'));
       items.forEach((item, index) => {
         const up = item.querySelector('[data-move-direction="up"]');
         const down = item.querySelector('[data-move-direction="down"]');
-        if (up) up.disabled = index === 0;
-        if (down) down.disabled = index === items.length - 1;
+        if (up) {
+          up.toggleAttribute('data-reorder-boundary', index === 0);
+          syncDisabledState(up);
+        }
+        if (down) {
+          down.toggleAttribute('data-reorder-boundary', index === items.length - 1);
+          syncDisabledState(down);
+        }
       });
     });
   }
@@ -52,17 +81,19 @@ document.addEventListener('DOMContentLoaded', () => {
   function setBusy(group, busy) {
     itemsFor(group).forEach((item) => {
       item.querySelectorAll('[data-drag-handle], [data-move-direction]').forEach((control) => {
-        control.disabled = busy;
+        control.toggleAttribute('data-reorder-busy', busy);
+        syncDisabledState(control);
       });
     });
   }
 
-  async function persist(group, previousOrder) {
+  async function persist(group, previousOrder, feedback = {}) {
     const list = listsFor(group)[0];
     const status = statusFor(group);
-    if (!list || !csrfToken) return;
+    if (!list || !csrfToken) return false;
+    let saved = false;
     setBusy(group, true);
-    if (status) status.textContent = 'Saving order...';
+    if (status) status.textContent = feedback.saving || 'Saving order...';
     try {
       const response = await fetch(list.dataset.reorderUrl, {
         method: 'POST',
@@ -74,7 +105,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }),
       });
       if (!response.ok) throw new Error(`Order request failed with ${response.status}`);
-      if (status) status.textContent = 'Order saved.';
+      saved = true;
+      if (status) status.textContent = feedback.saved || 'Order saved.';
     } catch (error) {
       console.error('Content reorder failed:', error);
       restore(previousOrder);
@@ -83,6 +115,7 @@ document.addEventListener('DOMContentLoaded', () => {
       setBusy(group, false);
       updateMoveButtons(group);
     }
+    return saved;
   }
 
   document.querySelectorAll('[data-reorder-toggle]').forEach((toggle) => {
@@ -90,6 +123,7 @@ document.addEventListener('DOMContentLoaded', () => {
     toggle.addEventListener('click', () => {
       const enabled = toggle.getAttribute('aria-pressed') !== 'true';
       toggle.setAttribute('aria-pressed', String(enabled));
+      toggle.setAttribute('aria-expanded', String(enabled));
       toggle.textContent = enabled
         ? 'Done reordering'
         : toggle.dataset.reorderLabel;
@@ -99,12 +133,19 @@ document.addEventListener('DOMContentLoaded', () => {
           controls.hidden = !enabled;
         });
       });
+      const status = statusFor(group);
+      if (status) {
+        status.textContent = enabled
+          ? 'Reordering enabled. Drag items or use Up and Down; changes save automatically.'
+          : 'Reordering finished.';
+      }
       updateMoveButtons(group);
     });
   });
 
   document.querySelectorAll('[data-move-direction]').forEach((button) => {
     button.addEventListener('click', () => {
+      if (button.getAttribute('aria-disabled') === 'true') return;
       const item = button.closest('[data-reorder-item]');
       const list = item?.parentElement;
       const group = list?.dataset.reorderGroup;
@@ -118,14 +159,40 @@ document.addEventListener('DOMContentLoaded', () => {
         if (next?.matches('[data-reorder-item]')) list.insertBefore(next, item);
       }
       updateMoveButtons(group);
-      void persist(group, previousOrder);
+      const position = itemPosition(group, item);
+      void persist(group, previousOrder, {
+        saving: `${position} Saving order...`,
+        saved: `${position} Order saved.`,
+      }).then((saved) => {
+        const oppositeDirection = button.dataset.moveDirection === 'up' ? 'down' : 'up';
+        const focusTarget = saved && button.getAttribute('aria-disabled') === 'true'
+          ? item.querySelector(`[data-move-direction="${oppositeDirection}"]`)
+          : button;
+        focusTarget?.focus({ preventScroll: true });
+      });
     });
   });
 
   let drag = null;
+  function cancelActiveDrag() {
+    if (!drag) return false;
+    const completed = drag;
+    drag = null;
+    completed.item.classList.remove('is-dragging');
+    completed.item.removeAttribute('aria-grabbed');
+    if (completed.handle.hasPointerCapture?.(completed.pointerId)) {
+      completed.handle.releasePointerCapture(completed.pointerId);
+    }
+    restore(completed.previousOrder);
+    updateMoveButtons(completed.group);
+    const status = statusFor(completed.group);
+    if (status) status.textContent = 'Move canceled.';
+    return true;
+  }
+
   document.querySelectorAll('[data-drag-handle]').forEach((handle) => {
     handle.addEventListener('pointerdown', (event) => {
-      if (handle.disabled || event.button > 0) return;
+      if (handle.disabled || handle.hasAttribute('data-reorder-busy') || event.button > 0) return;
       const item = handle.closest('[data-reorder-item]');
       const list = item?.parentElement;
       const group = list?.dataset.reorderGroup;
@@ -143,6 +210,8 @@ document.addEventListener('DOMContentLoaded', () => {
       };
       item.classList.add('is-dragging');
       item.setAttribute('aria-grabbed', 'true');
+      const status = statusFor(group);
+      if (status) status.textContent = `Moving ${itemLabel(item)}.`;
     });
 
     handle.addEventListener('pointermove', (event) => {
@@ -166,19 +235,38 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const finishDrag = (event, cancelled = false) => {
       if (!drag || drag.pointerId !== event.pointerId) return;
+      if (cancelled) {
+        cancelActiveDrag();
+        return;
+      }
       drag.item.classList.remove('is-dragging');
       drag.item.removeAttribute('aria-grabbed');
       const completed = drag;
       drag = null;
-      if (cancelled) {
-        restore(completed.previousOrder);
-        updateMoveButtons(completed.group);
-      } else if (completed.moved) {
-        void persist(completed.group, completed.previousOrder);
+      if (completed.moved) {
+        const position = itemPosition(completed.group, completed.item);
+        void persist(completed.group, completed.previousOrder, {
+          saving: `${position} Saving order...`,
+          saved: `${position} Order saved.`,
+        });
+      } else {
+        const status = statusFor(completed.group);
+        if (status) status.textContent = 'Item was not moved.';
       }
     };
     handle.addEventListener('pointerup', (event) => finishDrag(event));
     handle.addEventListener('pointercancel', (event) => finishDrag(event, true));
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    cancelActiveDrag();
+    const activeToggle = Array.from(document.querySelectorAll('[data-reorder-toggle]'))
+      .find((toggle) => toggle.getAttribute('aria-pressed') === 'true');
+    if (activeToggle) {
+      activeToggle.click();
+      activeToggle.focus();
+    }
   });
 
   document.querySelectorAll('[data-confirm]').forEach((form) => {
@@ -192,6 +280,7 @@ document.addEventListener('DOMContentLoaded', () => {
     timelineToggle.addEventListener('click', () => {
       const enabled = timelineToggle.getAttribute('aria-pressed') !== 'true';
       timelineToggle.setAttribute('aria-pressed', String(enabled));
+      timelineToggle.setAttribute('aria-expanded', String(enabled));
       timelineToggle.textContent = enabled ? 'Finish editing' : 'Edit timeline';
       document.querySelectorAll('[data-timeline-edit-controls]').forEach((controls) => {
         controls.hidden = !enabled;

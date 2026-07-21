@@ -1,6 +1,6 @@
-importScripts('/js/pwaPolicy.js');
+importScripts('/js/pwaPolicy.js?v=gk-ux-1');
 
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const STATE_SCHEMA_VERSION = 2;
 const PUBLIC_CACHE = `gbagl-public-${CACHE_VERSION}`;
 const PRIVATE_CACHE_ROOT = 'gbagl-private-';
@@ -703,7 +703,8 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  if (policy.PUBLIC_SHELL_PATHS.includes(url.pathname)) {
+  const publicShellPath = `${url.pathname}${url.search}`;
+  if (policy.PUBLIC_SHELL_PATHS.includes(publicShellPath)) {
     event.respondWith(
       caches.match(request, { cacheName: PUBLIC_CACHE })
         .then((cached) => cached || fetch(request)),

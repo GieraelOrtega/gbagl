@@ -14,7 +14,7 @@ const {
 
 test('PWA policy separates public shell, read-only snapshots, and protected media', () => {
   assert.ok(PUBLIC_SHELL_PATHS.includes('/offline.html'));
-  assert.ok(PUBLIC_SHELL_PATHS.includes('/icons/icon-512.png'));
+  assert.ok(PUBLIC_SHELL_PATHS.includes('/icons/icon-512.png?v=gk-ux-1'));
   assert.ok(PUBLIC_SHELL_PATHS.includes('/js/theme.js'));
   assert.equal(PUBLIC_SHELL_PATHS.some((item) => item.startsWith('/settings')), false);
   assert.equal(isPrivateSnapshotPath('/'), true);
@@ -56,7 +56,8 @@ test('manifest icons are real PNGs with declared maskable dimensions', () => {
   for (const expectedSize of [192, 512]) {
     const icon = manifest.icons.find((item) => item.sizes === `${expectedSize}x${expectedSize}`);
     assert.match(icon.purpose, /maskable/);
-    const bytes = fs.readFileSync(path.join(__dirname, '..', 'public', icon.src.slice(1)));
+    const iconPath = new URL(icon.src, 'https://gba.gl').pathname;
+    const bytes = fs.readFileSync(path.join(__dirname, '..', 'public', iconPath.slice(1)));
     assert.deepEqual([...bytes.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
     assert.equal(bytes.readUInt32BE(16), expectedSize);
     assert.equal(bytes.readUInt32BE(20), expectedSize);
@@ -80,6 +81,8 @@ test('service worker implements version cleanup, auth purge, and explicit clear 
   assert.match(source, /mutationResponse/);
   assert.match(source, /url\.pathname !== '\/lock'/);
   assert.match(source, /authorizePrivateCache/);
+  assert.match(source, /const CACHE_VERSION = 'v2'/);
+  assert.match(source, /url\.pathname\}\$\{url\.search/);
   assert.doesNotMatch(source, /\/settings\/|feed\.json|backups/);
 });
 

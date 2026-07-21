@@ -1,7 +1,7 @@
 <%- include('partials/head') %>
 <%- include('partials/nav') %>
 
-<main class="page-timeline">
+<main class="page-timeline" id="main-content" tabindex="-1">
   <div class="container">
     <header class="page-header">
       <h1 class="page-header__title">Our Timeline 📖</h1>
@@ -11,6 +11,8 @@
       <% if (canEdit && !timelineDegraded) { %>
         <div class="page-header__actions">
           <button type="button" class="btn btn--primary" data-timeline-edit-toggle
+                  aria-controls="timeline-edit-controls"
+                  aria-expanded="<%= editMode ? 'true' : 'false' %>"
                   aria-pressed="<%= editMode ? 'true' : 'false' %>">
             <%= editMode ? 'Finish editing' : 'Edit timeline' %>
           </button>
@@ -28,7 +30,8 @@
     <% } %>
 
     <% if (canEdit && !timelineDegraded) { %>
-      <section data-timeline-edit-controls <%= editMode ? '' : 'hidden' %>>
+      <section id="timeline-edit-controls" data-timeline-edit-controls
+               <%= editMode ? '' : 'hidden' %>>
         <details class="card editor-panel">
           <summary>Add a timeline milestone</summary>
           <form action="/timeline" method="post" class="admin-form">
