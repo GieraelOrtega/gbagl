@@ -15,13 +15,14 @@ const rateLimit = require('express-rate-limit');
 const path    = require('path');
 const { initDb } = require('./db');
 const { loadConfig } = require('./config');
-const { createAdminAuth } = require('./middleware/adminAuth');
+const { createAccountAuth } = require('./middleware/accountAuth');
 const { createCsrfProtection } = require('./middleware/csrf');
 const { createPasscodeAuth, safeDestination } = require('./middleware/passcode');
 const { createBackupService, scheduleBackups } = require('./services/backup');
 const { createKeepsakeExportService } = require('./services/keepsakeExport');
-const { createAdminRouter } = require('./routes/admin');
-const { createAdminHubRouter, createUploadIngress } = require('./routes/adminHub');
+const { createImageUploadIngress } = require('./middleware/imageUpload');
+const { createIndexRouter } = require('./routes/index');
+const { createSettingsRouter } = require('./routes/settings');
 const { createAlbumsRouter } = require('./routes/albums');
 const { createBucketRouter } = require('./routes/bucket');
 const { createJournalRouter } = require('./routes/journal');
@@ -32,11 +33,60 @@ const {
   isPrivateSnapshotPath,
 } = require('./public/js/pwaPolicy');
 
+const UNLOCK_ATTEMPT_LIMIT = 5;
+const UNLOCK_WINDOW_MS = 15 * 60 * 1000;
+
+function unlockAttemptState(req) {
+  const rateLimitState = req.rateLimit || {};
+  const limit = Number(rateLimitState.limit) || UNLOCK_ATTEMPT_LIMIT;
+  const used = Math.min(Number(rateLimitState.used) || 1, limit);
+  const remaining = Math.max(Number(rateLimitState.remaining) || 0, 0);
+  const reset = rateLimitState.resetTime instanceof Date
+    ? rateLimitState.resetTime.getTime()
+    : Date.now() + UNLOCK_WINDOW_MS;
+  return {
+    limit,
+    used,
+    remaining,
+    lockoutUntil: remaining === 0 ? reset : null,
+  };
+}
+
+function unlockStoreAttemptState(client) {
+  const used = Number(client?.totalHits);
+  const resetTime = client?.resetTime instanceof Date
+    ? client.resetTime
+    : new Date(client?.resetTime);
+  if (
+    !Number.isSafeInteger(used)
+    || used < 1
+    || !Number.isFinite(resetTime.getTime())
+    || resetTime.getTime() <= Date.now()
+  ) {
+    return null;
+  }
+  return unlockAttemptState({
+    rateLimit: {
+      limit: UNLOCK_ATTEMPT_LIMIT,
+      remaining: Math.max(UNLOCK_ATTEMPT_LIMIT - used, 0),
+      resetTime,
+      used,
+    },
+  });
+}
+
 function createApp(config = loadConfig(), services = {}) {
   const app = express();
-  app.set('trust proxy', 'loopback, linklocal, uniquelocal');
+  app.set('trust proxy', config.trustProxy || ['loopback']);
+  if (config.production) {
+    app.use((req, res, next) => {
+      if (req.secure) return next();
+      res.set('Cache-Control', 'no-store');
+      return res.redirect(308, `${config.publicOrigin}${req.originalUrl}`);
+    });
+  }
 
-  const adminAuth = createAdminAuth(config);
+  const accountAuth = createAccountAuth(config);
   const passcodeAuth = createPasscodeAuth(config);
   const backupService = services.backupService || createBackupService(config);
   const uploadConfig = {
@@ -53,8 +103,11 @@ function createApp(config = loadConfig(), services = {}) {
   app.use(express.urlencoded({ extended: true }));
   app.use(express.json());
   app.use((req, res, next) => {
+    res.locals.currentUser = null;
+    res.locals.canEdit = false;
     res.locals.isAdmin = false;
     res.locals.offlineSnapshot = false;
+    res.locals.attempts = null;
     res.set({
       'Content-Security-Policy': [
         "default-src 'self'",
@@ -62,15 +115,25 @@ function createApp(config = loadConfig(), services = {}) {
         "font-src 'self'",
         "img-src 'self' data:",
         "script-src 'self'",
+        "connect-src 'self'",
+        "manifest-src 'self'",
+        "object-src 'none'",
+        "worker-src 'self'",
         "form-action 'self'",
         "frame-ancestors 'none'",
         "base-uri 'none'",
       ].join('; '),
       'Referrer-Policy': 'no-referrer',
+      'Permissions-Policy': 'camera=(), geolocation=(), microphone=(), payment=(), usb=()',
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Resource-Policy': 'same-origin',
       'X-Content-Type-Options': 'nosniff',
       'X-Frame-Options': 'DENY',
       'X-Robots-Tag': 'noindex, nofollow',
     });
+    if (config.production) {
+      res.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    }
     next();
   });
   const publicFile = (relativePath, headers = {}) => (req, res) => {
@@ -81,6 +144,7 @@ function createApp(config = loadConfig(), services = {}) {
   app.get('/js/lock.js', publicFile('js/lock.js'));
   app.get('/js/pwa.js', publicFile('js/pwa.js'));
   app.get('/js/pwaPolicy.js', publicFile('js/pwaPolicy.js'));
+  app.get('/js/theme.js', publicFile('js/theme.js'));
   app.get('/manifest.webmanifest', publicFile('manifest.webmanifest', {
     'Content-Type': 'application/manifest+json',
   }));
@@ -107,23 +171,42 @@ function createApp(config = loadConfig(), services = {}) {
     return csrfProtection.initialize(req, res, next);
   });
   app.use(
-    '/admin/albums/photos/upload',
-    createUploadIngress(uploadConfig, adminAuth, passcodeAuth),
+    '/home-photo',
+    createImageUploadIngress({
+      accountAuth,
+      config: uploadConfig,
+      errorDestination: '/',
+      passcodeAuth,
+    }),
+  );
+  app.use(
+    '/albums/photos/upload',
+    createImageUploadIngress({
+      accountAuth,
+      config: uploadConfig,
+      errorDestination: '/albums',
+      passcodeAuth,
+    }),
   );
   app.use(csrfProtection.verify);
 
+  const unlockStore = new rateLimit.MemoryStore();
+  const unlockKey = (req) => rateLimit.ipKeyGenerator(req.ip);
   const unlockLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    limit: 5,
+    windowMs: UNLOCK_WINDOW_MS,
+    limit: UNLOCK_ATTEMPT_LIMIT,
+    keyGenerator: unlockKey,
     skipSuccessfulRequests: true,
     standardHeaders: 'draft-8',
     legacyHeaders: false,
+    store: unlockStore,
     handler: (req, res) => {
       res.set('Cache-Control', 'no-store');
       res.status(429).render('lock', {
         title: 'GBAGL — Locked',
-        error: 'Too many attempts. Please wait 15 minutes and try again.',
+        error: 'Too many incorrect attempts.',
         next: safeDestination(req.body.next),
+        attempts: unlockAttemptState(req),
       });
     },
   });
@@ -136,17 +219,34 @@ function createApp(config = loadConfig(), services = {}) {
       });
       return res.status(401).render('lock', {
         title: 'GBAGL — Locked',
-        error: 'Incorrect passcode. Try again.',
+        error: 'Incorrect passcode.',
         next: safeDestination(req.body.next),
+        attempts: unlockAttemptState(req),
       });
     }
     passcodeAuth.setUnlockCookie(res);
     return res.redirect(303, safeDestination(req.body.next));
   });
 
+  app.use(async (req, res, next) => {
+    if (passcodeAuth.isUnlocked(req)) return next();
+    try {
+      const key = unlockKey(req);
+      const client = await unlockStore.get(key);
+      const attempts = unlockStoreAttemptState(client);
+      if (client && !attempts) await unlockStore.resetKey(key);
+      res.locals.attempts = attempts;
+      return next();
+    } catch (error) {
+      return next(error);
+    }
+  });
   app.use(passcodeAuth.requirePasscode);
   app.use((req, res, next) => {
-    res.locals.isAdmin = adminAuth.isAdmin(req);
+    const currentUser = accountAuth.currentUser(req);
+    res.locals.currentUser = currentUser;
+    res.locals.isAdmin = currentUser?.role === 'admin';
+    res.locals.canEdit = Boolean(currentUser) && !req.isOfflineSnapshot;
     if (
       req.isOfflineSnapshot
     ) {
@@ -161,7 +261,7 @@ function createApp(config = loadConfig(), services = {}) {
   });
   app.post('/lock', (req, res) => {
     passcodeAuth.clearUnlockCookie(res);
-    adminAuth.clearAdminCookie(res);
+    accountAuth.clearAccountCookie(res);
     res.set({
       'Clear-Site-Data': '"cache", "storage"',
       'X-GBAGL-Clear-Private-Data': '1',
@@ -169,19 +269,19 @@ function createApp(config = loadConfig(), services = {}) {
     return res.redirect(303, '/');
   });
   app.use(express.static(path.join(__dirname, 'public')));
-  app.use('/admin', createAdminRouter({
-    adminAuth,
+  app.use('/settings', createSettingsRouter({
+    accountAuth,
     backupService,
     config: uploadConfig,
     exportService,
   }));
-  app.use('/', require('./routes/index'));
-  app.use('/adventure', require('./routes/adventure'));
-  app.use('/timeline', require('./routes/timeline'));
-  app.use('/bucket', createBucketRouter());
-  app.use('/reminders', createRemindersRouter());
-  app.use('/albums', createAlbumsRouter(uploadConfig));
-  app.use('/journal', createJournalRouter());
+  app.use('/', createIndexRouter(uploadConfig, accountAuth));
+  app.use('/adventure', accountAuth.requireMemberWrite, require('./routes/adventure'));
+  app.use('/timeline', accountAuth.requireMemberWrite, require('./routes/timeline'));
+  app.use('/bucket', accountAuth.requireMemberWrite, createBucketRouter());
+  app.use('/reminders', accountAuth.requireMemberWrite, createRemindersRouter());
+  app.use('/albums', accountAuth.requireMemberWrite, createAlbumsRouter(uploadConfig));
+  app.use('/journal', accountAuth.requireMemberWrite, createJournalRouter());
   app.use((req, res) => {
     res.status(404).render('404', {
       title: '404 — Page Not Found | GBAGL',

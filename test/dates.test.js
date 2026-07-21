@@ -4,6 +4,7 @@ const {
   nextAnniversary,
   zonedLocalToUtc,
 } = require('../lib/dates');
+const { formatDate } = require('../lib/presentation');
 
 test('next anniversary preserves leap day and uses February 28 in other years', () => {
   const ordinaryYear = nextAnniversary(
@@ -60,4 +61,9 @@ test('local event times convert to UTC and reject skipped daylight-saving times'
     () => zonedLocalToUtc('2026-03-08T02:30', 'America/Los_Angeles'),
     /does not exist/,
   );
+});
+
+test('anniversary dates render without timezone day shifts', () => {
+  assert.equal(formatDate('2025-12-08'), 'December 8, 2025');
+  assert.equal(formatDate('not-a-date'), '');
 });

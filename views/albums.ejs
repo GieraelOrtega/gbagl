@@ -1,21 +1,64 @@
 <%- include('partials/head') %>
 <%- include('partials/nav') %>
-<main class="content-page">
+<main class="content-page" id="main-content" tabindex="-1">
   <div class="container">
     <header class="page-header">
       <h1 class="page-header__title">Photo Albums</h1>
       <p class="page-header__subtitle">Private photos, available only after unlocking GBAGL.</p>
     </header>
+    <% if (message) { %><div class="alert alert--success"><%= message %></div><% } %>
+    <% if (error) { %><div class="alert alert--error"><%= error %></div><% } %>
     <% if (dbError) { %><div class="alert alert--warning"><%= dbError %></div><% } %>
-    <div class="album-grid">
+    <% if (!canEdit && !offlineSnapshot) { %>
+      <div class="read-only-note">View-only mode: sign in from Settings to create, edit, or reorder albums.</div>
+    <% } %>
+    <% if (!dbError && canEdit) { %>
+      <details class="card editor-panel">
+        <summary>Create an album</summary>
+        <form action="/albums" method="post" class="admin-form">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+          <%- include('partials/album-fields', {
+            album: { title: '', description: '', album_date: '' },
+            prefix: 'new-album'
+          }) %>
+          <button type="submit" class="btn btn--primary">Create album</button>
+        </form>
+      </details>
+      <% if (albums.length > 1) { %>
+        <%- include('partials/reorder-toolbar', { group: 'albums', label: 'albums' }) %>
+      <% } %>
+    <% } %>
+    <div class="album-grid" data-reorder-group="albums" data-reorder-url="/albums/reorder">
       <% albums.forEach((album) => { %>
-        <article class="card album-card">
+        <article class="card album-card" data-reorder-item data-reorder-id="<%= album.id %>">
           <% if (album.cover_photo_id) { %>
             <img src="/albums/photos/<%= album.cover_photo_id %>/content" alt="" loading="lazy" />
+          <% } %>
+          <% if (canEdit) { %>
+            <%- include('partials/reorder-controls', { label: `album ${album.title}` }) %>
           <% } %>
           <h2 class="card__title"><a href="/albums/<%= album.id %>"><%= album.title %></a></h2>
           <p><%= album.description %></p>
           <p><%= album.photo_count %> photo<%= Number(album.photo_count) === 1 ? '' : 's' %></p>
+          <% if (canEdit) { %>
+            <details class="item-editor">
+              <summary>Edit album</summary>
+              <form action="/albums/<%= album.id %>" method="post" class="admin-form">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                <%- include('partials/album-fields', {
+                  album,
+                  prefix: `album-${album.id}`
+                }) %>
+                <button type="submit" class="btn btn--primary">Save album</button>
+              </form>
+              <form action="/albums/<%= album.id %>/delete" method="post"
+                    class="admin-danger"
+                    data-confirm="Delete this album and all of its photos?">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                <button type="submit" class="btn btn--outline">Delete album and photos</button>
+              </form>
+            </details>
+          <% } %>
         </article>
       <% }) %>
     </div>

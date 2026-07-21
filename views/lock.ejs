@@ -5,14 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="robots" content="noindex, nofollow" />
   <meta name="theme-color" content="#412b47" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="GBAGL" />
   <title><%= title %></title>
-  <link rel="manifest" href="/manifest.webmanifest" />
-  <link rel="icon" href="/icons/icon-192.png" />
-  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
-  <link rel="stylesheet" href="/css/style.css" />
+  <link rel="manifest" href="/manifest.webmanifest?v=gk-ux-1" />
+  <link rel="icon" href="/icons/icon-192.png?v=gk-ux-1" />
+  <link rel="apple-touch-icon" href="/icons/icon-192.png?v=gk-ux-1" />
+  <script src="/js/theme.js"></script>
+  <link rel="stylesheet" href="/css/style.css?v=gk-ux-1" />
 </head>
 <body class="lock-screen" data-locked-state>
-  <main class="lock-screen__main">
+  <% const lockedOut = Boolean(attempts && attempts.lockoutUntil); %>
+  <main class="lock-screen__main" id="main-content">
     <div class="lock-screen__glow" aria-hidden="true"></div>
 
     <section class="passcode" aria-labelledby="passcode-title">
@@ -29,7 +35,8 @@
         <label class="visually-hidden" for="passcodeInput">4-digit passcode</label>
         <input class="passcode__input" id="passcodeInput" name="passcode"
                type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4"
-               autocomplete="off" autofocus required />
+               autocomplete="off" tabindex="-1" aria-hidden="true"
+               <%= lockedOut ? 'disabled' : '' %> required />
 
         <div class="passcode__dots" aria-hidden="true">
           <% for (let i = 0; i < 4; i += 1) { %>
@@ -40,28 +47,43 @@
         <p class="passcode__message" id="passcodeMessage" aria-live="polite">
           <%= error || '' %>
         </p>
+        <p class="passcode__policy" id="passcodePolicy"
+           <% if (lockedOut) { %>data-lockout-until="<%= attempts.lockoutUntil %>"<% } %>
+           role="status" aria-live="polite">
+          <% if (lockedOut) { %>
+             Attempt <%= attempts.used %> of <%= attempts.limit %>.
+             Entry paused. Try again in <span data-lockout-countdown>15:00</span>.
+          <% } else if (attempts) { %>
+            Attempt <%= attempts.used %> of <%= attempts.limit %> ·
+            <%= attempts.remaining %> attempt<%= attempts.remaining === 1 ? '' : 's' %> remaining.
+          <% } else { %>
+            Five incorrect attempts pause entry for 15 minutes.
+          <% } %>
+        </p>
 
         <div class="keypad" aria-label="Numeric keypad">
           <% for (let number = 1; number <= 9; number += 1) { %>
-            <button class="keypad__key" type="button" data-digit="<%= number %>">
+            <button class="keypad__key" type="button" data-digit="<%= number %>"
+                    <%= lockedOut ? 'disabled' : '' %>>
               <span><%= number %></span>
             </button>
           <% } %>
           <span></span>
-          <button class="keypad__key" type="button" data-digit="0"><span>0</span></button>
+          <button class="keypad__key" type="button" data-digit="0"
+                  <%= lockedOut ? 'disabled' : '' %>><span>0</span></button>
           <button class="keypad__delete" type="button" id="passcodeDelete"
-                  aria-label="Delete last digit">Delete</button>
+                  aria-label="Delete last digit" <%= lockedOut ? 'disabled' : '' %>>Delete</button>
         </div>
 
-        <button class="passcode__submit" type="submit">Unlock</button>
+        <button class="passcode__submit visually-hidden" type="submit"
+                <%= lockedOut ? 'disabled' : '' %>>Unlock</button>
       </form>
-      <div class="pwa-controls" data-pwa-controls hidden>
-        <button type="button" class="passcode__install" data-install-app hidden>Install GBAGL</button>
-        <span class="network-status network-status--dark" data-network-status hidden></span>
-      </div>
-      <span class="visually-hidden" data-network-status-announcer role="status" aria-live="polite" aria-atomic="true"></span>
     </section>
   </main>
+  <aside class="lock-install" data-pwa-controls aria-label="Install GBAGL">
+    <button type="button" class="passcode__install" data-install-app>Install Now</button>
+    <p class="lock-install__help" data-install-help role="status" hidden></p>
+  </aside>
   <script src="/js/lock.js"></script>
   <script src="/js/pwa.js"></script>
 </body>

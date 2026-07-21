@@ -8,13 +8,14 @@
   const MEDIA_OPT_IN = 'media-v1';
   const PUBLIC_SHELL_PATHS = Object.freeze([
     '/offline.html',
-    '/css/style.css',
+    '/css/style.css?v=gk-ux-1',
     '/js/lock.js',
     '/js/pwa.js',
-    '/js/pwaPolicy.js',
-    '/manifest.webmanifest',
-    '/icons/icon-192.png',
-    '/icons/icon-512.png',
+    '/js/pwaPolicy.js?v=gk-ux-1',
+    '/js/theme.js',
+    '/manifest.webmanifest?v=gk-ux-1',
+    '/icons/icon-192.png?v=gk-ux-1',
+    '/icons/icon-512.png?v=gk-ux-1',
   ]);
 
   function isPrivateSnapshotPath(pathname) {
@@ -29,7 +30,8 @@
   }
 
   function isPrivateMediaPath(pathname) {
-    return /^\/albums\/photos\/[1-9]\d*\/content$/.test(pathname);
+    return pathname === '/media/home-photo'
+      || /^\/albums\/photos\/[1-9]\d*\/content$/.test(pathname);
   }
 
   function sameOriginUrl(value, origin) {

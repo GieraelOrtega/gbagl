@@ -1,6 +1,6 @@
-importScripts('/js/pwaPolicy.js');
+importScripts('/js/pwaPolicy.js?v=gk-ux-1');
 
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const STATE_SCHEMA_VERSION = 2;
 const PUBLIC_CACHE = `gbagl-public-${CACHE_VERSION}`;
 const PRIVATE_CACHE_ROOT = 'gbagl-private-';
@@ -414,7 +414,42 @@ function isCacheableSnapshot(response) {
     && response.headers.get('Content-Type')?.startsWith('text/html');
 }
 
-async function authorizePrivateCache(value, extendLifetime = () => {}) {
+function authorizedMediaRequests(values) {
+  if (!Array.isArray(values)) return [];
+  const urls = new Set();
+  for (const value of values.slice(0, 20)) {
+    if (typeof value !== 'string') continue;
+    try {
+      const url = new URL(value, self.location.origin);
+      if (
+        url.origin === self.location.origin
+        && policy.isPrivateMediaPath(url.pathname)
+      ) urls.add(url.href);
+    } catch {
+      // Ignore malformed client-provided media URLs.
+    }
+  }
+  return [...urls].map((url) => new Request(url, { credentials: 'include' }));
+}
+
+async function cacheAuthorizedMedia(values, extendLifetime) {
+  const requests = authorizedMediaRequests(values);
+  if (!requests.length || !privateAccessAllowed || !activePrivateCache) return;
+  const expectedGeneration = privateGeneration;
+  const expectedCache = activePrivateCache;
+  const cache = await caches.open(expectedCache);
+  for (const request of requests) {
+    if (!privateStateMatches(expectedGeneration, expectedCache)) return;
+    if (await cache.match(request)) continue;
+    await protectedMediaResponse(request, extendLifetime);
+  }
+}
+
+async function authorizePrivateCache(
+  value,
+  extendLifetime = () => {},
+  mediaValues = [],
+) {
   await privateStateReady;
   let authorizationSnapshot;
   try {
@@ -505,6 +540,11 @@ async function authorizePrivateCache(value, extendLifetime = () => {}) {
     privateAccessAllowed = false;
     activePrivateCache = null;
     console.warn('GBAGL snapshot cache write failed:', error);
+  }
+  try {
+    await cacheAuthorizedMedia(mediaValues, extendLifetime);
+  } catch (error) {
+    console.warn('GBAGL authorized media prefetch failed:', error);
   }
 }
 
@@ -645,6 +685,7 @@ self.addEventListener('message', (event) => {
     event.waitUntil(authorizePrivateCache(
       event.data.url,
       (promise) => event.waitUntil(promise),
+      event.data.mediaUrls,
     ));
   }
 });
@@ -662,7 +703,8 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  if (policy.PUBLIC_SHELL_PATHS.includes(url.pathname)) {
+  const publicShellPath = `${url.pathname}${url.search}`;
+  if (policy.PUBLIC_SHELL_PATHS.includes(publicShellPath)) {
     event.respondWith(
       caches.match(request, { cacheName: PUBLIC_CACHE })
         .then((cached) => cached || fetch(request)),

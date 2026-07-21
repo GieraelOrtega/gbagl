@@ -1,7 +1,13 @@
 const express = require('express');
 const { getPool, isDbAvailable } = require('../db');
+const {
+  nextDisplayOrder,
+  publicOrderError,
+  reorderCollection,
+} = require('../lib/contentOrder');
 const { positiveId } = require('../lib/validation');
 const {
+  validateBucketItem,
   validateBucketMemory,
   validateVote,
 } = require('../lib/hubValidation');
@@ -26,6 +32,7 @@ function createBucketRouter() {
           getPool().execute(
             `SELECT i.id, i.title, i.description, i.category,
                     DATE_FORMAT(i.target_date, '%Y-%m-%d') AS target_date,
+                    i.display_order,
                     i.is_favorite,
                     DATE_FORMAT(i.completed_at, '%Y-%m-%d') AS completed_at,
                     i.memory,
@@ -36,7 +43,7 @@ function createBucketRouter() {
              FROM bucket_items i
              LEFT JOIN bucket_votes v ON v.item_id = i.id
              GROUP BY i.id
-             ORDER BY i.completed_at IS NOT NULL, i.is_favorite DESC,
+             ORDER BY i.display_order, i.completed_at IS NOT NULL, i.is_favorite DESC,
                       i.target_date IS NULL, i.target_date, i.id DESC`,
           ),
           getPool().execute(
@@ -67,6 +74,81 @@ function createBucketRouter() {
       message: req.query.message || null,
       error: req.query.error || null,
     });
+  });
+
+  router.post('/', async (req, res) => {
+    if (!isDbAvailable()) return redirectMessage(res, 'error', 'Database unavailable.');
+    try {
+      const item = validateBucketItem(req.body);
+      const displayOrder = await nextDisplayOrder(getPool(), 'bucket');
+      await getPool().execute(
+        `INSERT INTO bucket_items
+          (title, description, category, target_date, display_order)
+         VALUES (?, ?, ?, ?, ?)`,
+        [
+          item.title,
+          item.description,
+          item.category,
+          item.targetDate,
+          displayOrder,
+        ],
+      );
+      return redirectMessage(res, 'message', 'Bucket List item added.');
+    } catch (error) {
+      console.error('Bucket item create failed:', error.message);
+      return redirectMessage(res, 'error', error.message);
+    }
+  });
+
+  router.post('/reorder', async (req, res) => {
+    if (!isDbAvailable()) return res.status(503).json({ error: 'Database unavailable' });
+    try {
+      await reorderCollection(getPool(), 'bucket', req.body.ids);
+      return res.status(204).end();
+    } catch (error) {
+      console.error('Bucket reorder failed:', error.message);
+      const publicError = publicOrderError(error);
+      return res.status(publicError.status).json({ error: publicError.message });
+    }
+  });
+
+  router.post('/:id', async (req, res) => {
+    if (!isDbAvailable()) return redirectMessage(res, 'error', 'Database unavailable.');
+    try {
+      const item = validateBucketItem(req.body);
+      const [result] = await getPool().execute(
+        `UPDATE bucket_items
+         SET title = ?, description = ?, category = ?, target_date = ?
+         WHERE id = ?`,
+        [
+          item.title,
+          item.description,
+          item.category,
+          item.targetDate,
+          positiveId(req.params.id),
+        ],
+      );
+      if (result.affectedRows !== 1) throw new Error('Bucket item not found');
+      return redirectMessage(res, 'message', 'Bucket List item updated.');
+    } catch (error) {
+      console.error('Bucket item update failed:', error.message);
+      return redirectMessage(res, 'error', error.message);
+    }
+  });
+
+  router.post('/:id/delete', async (req, res) => {
+    if (!isDbAvailable()) return redirectMessage(res, 'error', 'Database unavailable.');
+    try {
+      const [result] = await getPool().execute(
+        'DELETE FROM bucket_items WHERE id = ?',
+        [positiveId(req.params.id)],
+      );
+      if (result.affectedRows !== 1) throw new Error('Bucket item not found');
+      return redirectMessage(res, 'message', 'Bucket List item deleted.');
+    } catch (error) {
+      console.error('Bucket item delete failed:', error.message);
+      return redirectMessage(res, 'error', error.message);
+    }
   });
 
   router.post('/:id/vote', async (req, res) => {

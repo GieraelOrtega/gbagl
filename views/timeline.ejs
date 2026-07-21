@@ -1,63 +1,134 @@
 <%- include('partials/head') %>
 <%- include('partials/nav') %>
 
-<main class="page-timeline">
+<main class="page-timeline" id="main-content" tabindex="-1">
   <div class="container">
-
     <header class="page-header">
       <h1 class="page-header__title">Our Timeline 📖</h1>
       <p class="page-header__subtitle">
-        Every milestone, every first, every memory — our story from the very beginning. 💕
+        Every milestone, every first, every memory — our story from the very beginning.
       </p>
-    </header>
-    <% if (journalError) { %><div class="alert alert--warning"><%= journalError %></div><% } %>
-
-    <!-- ── Timeline ───────────────────────────────────────── -->
-    <div class="timeline">
-      <% milestones.forEach((milestone, index) => { %>
-      <div class="timeline__item <%= index % 2 === 0 ? 'timeline__item--left' : 'timeline__item--right' %>">
-
-        <div class="timeline__connector">
-          <div class="timeline__dot"><span><%= milestone.emoji %></span></div>
+      <% if (canEdit && !timelineDegraded) { %>
+        <div class="page-header__actions">
+          <button type="button" class="btn btn--primary" data-timeline-edit-toggle
+                  aria-controls="timeline-edit-controls"
+                  aria-expanded="<%= editMode ? 'true' : 'false' %>"
+                  aria-pressed="<%= editMode ? 'true' : 'false' %>">
+            <%= editMode ? 'Finish editing' : 'Edit timeline' %>
+          </button>
         </div>
+      <% } %>
+    </header>
 
-        <article class="timeline__card card">
-          <div class="timeline__date"><%= milestone.date %></div>
-          <h2 class="timeline__title"><%= milestone.title %></h2>
-          <p class="timeline__description"><%= milestone.description %></p>
-          <% if (milestone.link_url) { %>
-            <p><a href="<%= milestone.link_url %>" rel="noopener noreferrer">Visit memory</a></p>
-          <% } %>
-          <% const linkedEntries = milestone.id
-            ? journals.filter((entry) => entry.milestone_id === milestone.id)
-            : []; %>
-          <% linkedEntries.forEach((entry) => { %>
-            <aside class="timeline-journal">
-              <strong><%= entry.title %></strong>
-              <small><%= entry.entry_date %></small>
-              <p><%= entry.body %></p>
-            </aside>
-          <% }) %>
+    <% if (message) { %><div class="alert alert--success"><%= message %></div><% } %>
+    <% if (error) { %><div class="alert alert--error"><%= error %></div><% } %>
+    <% if (journalError) { %><div class="alert alert--warning"><%= journalError %></div><% } %>
+    <% if (timelineDegraded) { %>
+      <div class="alert alert--warning">Timeline editing is unavailable until the database reconnects.</div>
+    <% } else if (!canEdit && !offlineSnapshot) { %>
+      <div class="read-only-note">View-only mode: sign in from Settings to edit or reorder timeline milestones.</div>
+    <% } %>
 
-          <% if (milestone.photo) { %>
-            <!-- 📸 Photo for this milestone -->
-            <img src="/<%= milestone.photo %>"
-                 alt="<%= milestone.title %>"
-                 class="timeline__photo"
-                 loading="lazy" />
-          <% } else { %>
-            <div class="timeline__photo-placeholder">
-              <span>📸</span>
-              <small>No photo for this memory yet</small>
-            </div>
-          <% } %>
-        </article>
+    <% if (canEdit && !timelineDegraded) { %>
+      <section id="timeline-edit-controls" data-timeline-edit-controls
+               <%= editMode ? '' : 'hidden' %>>
+        <details class="card editor-panel">
+          <summary>Add a timeline milestone</summary>
+          <form action="/timeline" method="post" class="admin-form">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+            <%- include('partials/milestone-fields', {
+              milestone: {
+                date: '',
+                title: '',
+                description: '',
+                emoji: '',
+                photo: '',
+                link_url: ''
+              },
+              prefix: 'new-milestone'
+            }) %>
+            <button type="submit" class="btn btn--primary">Add milestone</button>
+          </form>
+        </details>
+        <% if (milestones.length > 1) { %>
+          <%- include('partials/reorder-toolbar', { group: 'timeline', label: 'milestones' }) %>
+        <% } %>
+      </section>
+    <% } %>
 
-      </div>
+    <div class="timeline" data-reorder-group="timeline" data-reorder-url="/timeline/reorder">
+      <% milestones.forEach((milestone, index) => { %>
+        <div class="timeline__item <%= index % 2 === 0 ? 'timeline__item--left' : 'timeline__item--right' %>"
+             id="<%= milestone.id ? `milestone-${milestone.id}` : '' %>"
+             <% if (milestone.id) { %>data-reorder-item data-reorder-id="<%= milestone.id %>"<% } %>>
+          <div class="timeline__connector">
+            <div class="timeline__dot"><span><%= milestone.emoji %></span></div>
+          </div>
+
+          <article class="timeline__card card">
+            <% if (canEdit && !timelineDegraded && milestone.id) { %>
+              <div data-timeline-edit-controls <%= editMode ? '' : 'hidden' %>>
+                <%- include('partials/reorder-controls', {
+                  label: `timeline milestone ${milestone.title}`
+                }) %>
+              </div>
+            <% } %>
+            <div class="timeline__date"><%= milestone.date %></div>
+            <h2 class="timeline__title"><%= milestone.title %></h2>
+            <p class="timeline__description"><%= milestone.description %></p>
+            <% if (milestone.link_url) { %>
+              <p><a href="<%= milestone.link_url %>" rel="noopener noreferrer">Visit memory</a></p>
+            <% } %>
+
+            <% const linkedEntries = milestone.id
+              ? journals.filter((entry) => Number(entry.milestone_id) === Number(milestone.id))
+              : []; %>
+            <% linkedEntries.forEach((entry) => { %>
+              <aside class="timeline-journal">
+                <strong><%= entry.title %></strong>
+                <small><%= entry.entry_date %></small>
+                <p><%= entry.body %></p>
+              </aside>
+            <% }) %>
+
+            <% if (milestone.photo) { %>
+              <img src="/<%= milestone.photo %>"
+                   alt="<%= milestone.title %>"
+                   class="timeline__photo"
+                   loading="lazy" />
+            <% } else { %>
+              <div class="timeline__photo-placeholder">
+                <span>📸</span>
+                <small>No photo for this memory yet</small>
+              </div>
+            <% } %>
+
+            <% if (canEdit && !timelineDegraded && milestone.id) { %>
+              <details class="item-editor" data-timeline-edit-controls <%= editMode ? '' : 'hidden' %>>
+                <summary>Edit this milestone</summary>
+                <form action="/timeline/<%= milestone.id %>" method="post" class="admin-form">
+                  <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                  <%- include('partials/milestone-fields', {
+                    milestone,
+                    prefix: `milestone-${milestone.id}`
+                  }) %>
+                  <button type="submit" class="btn btn--primary">Save milestone</button>
+                </form>
+                <form action="/timeline/<%= milestone.id %>/delete" method="post"
+                      class="admin-danger" data-confirm="Delete this timeline milestone?">
+                  <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                  <button type="submit" class="btn btn--outline">Delete milestone</button>
+                </form>
+              </details>
+            <% } %>
+          </article>
+        </div>
       <% }) %>
     </div>
-    <!-- end timeline -->
 
+    <% if (!timelineDegraded && milestones.length === 0) { %>
+      <div class="empty-state">No timeline milestones yet.</div>
+    <% } %>
   </div>
 </main>
 

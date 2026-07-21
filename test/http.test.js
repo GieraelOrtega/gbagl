@@ -12,27 +12,63 @@ function csrfFrom(html) {
   return match[1];
 }
 
-test('lock, separate admin login, CSRF failure, and logout flow', async (t) => {
-  const config = {
-    adminCookieHours: 12,
-    adminPassword: 'local-admin-passphrase',
-    backupDir: 'runtime/backups-test',
+function testConfig(suffix) {
+  return {
+    accountCookieHours: 12,
+    accounts: [
+      {
+        username: 'gierael',
+        displayName: 'Gierael',
+        role: 'admin',
+        password: 'local-gierael-passphrase',
+      },
+      {
+        username: 'kim',
+        displayName: 'Kim',
+        role: 'member',
+        password: 'local-kim-passphrase',
+      },
+    ],
+    backupDir: `runtime/backups-${suffix}`,
     backupIntervalHours: 24,
     backupMediaPaths: [],
     backupRetention: 7,
-    cookieSecret: 'local-cookie-secret-for-http-tests',
+    cookieSecret: `local-cookie-secret-for-${suffix}`,
     port: 0,
     production: false,
     sitePasscode: '8462',
-    uploadDir: 'runtime/uploads-http-base-test',
+    uploadDir: `runtime/uploads-${suffix}`,
     uploadMaxBytes: 1024,
   };
-  const backupService = {
+}
+
+function backupService() {
+  return {
     create: async () => ({ filename: 'unused.zip' }),
     downloadPath: () => { throw new Error('not found'); },
     list: async () => [],
   };
-  const { app } = createApp(config, { backupService });
+}
+
+async function signIn(base, cookies, csrfToken, account) {
+  return fetch(`${base}/settings/login`, {
+    method: 'POST',
+    redirect: 'manual',
+    headers: {
+      Cookie: cookies,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams({
+      _csrf: csrfToken,
+      username: account.username,
+      password: account.password,
+    }),
+  });
+}
+
+test('viewer, Kim member, and Gierael administrator boundaries are enforced', async (t) => {
+  const config = testConfig('http-roles-test');
+  const { app } = createApp(config, { backupService: backupService() });
   const server = app.listen(0);
   await new Promise((resolve) => server.once('listening', resolve));
   t.after(async () => {
@@ -45,8 +81,13 @@ test('lock, separate admin login, CSRF failure, and logout flow', async (t) => {
   assert.equal(locked.status, 401);
   assert.match(locked.headers.get('cache-control'), /no-store/);
   assert.equal(locked.headers.get('x-robots-tag'), 'noindex, nofollow');
+  assert.match(locked.headers.get('content-security-policy'), /object-src 'none'/);
+  assert.match(locked.headers.get('permissions-policy'), /camera=\(\)/);
+  const lockedHtml = await locked.text();
+  assert.match(lockedHtml, />Install Now</);
+  assert.doesNotMatch(lockedHtml, />Online</);
   const csrfCookie = firstCookie(locked);
-  const csrfToken = csrfFrom(await locked.text());
+  const csrfToken = csrfFrom(lockedHtml);
 
   const unlocked = await fetch(`${base}/unlock`, {
     method: 'POST',
@@ -61,61 +102,141 @@ test('lock, separate admin login, CSRF failure, and logout flow', async (t) => {
       passcode: config.sitePasscode,
     }),
   });
-
   assert.equal(unlocked.status, 303);
   const siteCookie = firstCookie(unlocked);
+  const siteCookies = `${csrfCookie}; ${siteCookie}`;
+
+  const viewerAdventure = await fetch(`${base}/adventure`, {
+    headers: { Cookie: siteCookies },
+  });
+  const viewerAdventureHtml = await viewerAdventure.text();
+  assert.match(viewerAdventureHtml, /View-only mode/);
+  assert.doesNotMatch(viewerAdventureHtml, /<form action="\/adventure"/);
+
+  const viewerWrite = await fetch(`${base}/bucket/1/favorite`, {
+    method: 'POST',
+    headers: {
+      Cookie: siteCookies,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams({ _csrf: csrfToken }),
+  });
+  assert.equal(viewerWrite.status, 403);
+
+  const retiredContentPage = await fetch(`${base}/settings/content/bucket`, {
+    redirect: 'manual',
+    headers: { Cookie: siteCookies },
+  });
+  assert.equal(retiredContentPage.status, 303);
+  assert.equal(retiredContentPage.headers.get('location'), '/settings/login');
+
+  const loginPage = await fetch(`${base}/settings/login`, {
+    headers: { Cookie: siteCookies },
+  });
+  assert.equal(loginPage.status, 200);
+  assert.match(await loginPage.text(), /Sign in to make changes/);
+
+  const gieraelLogin = await signIn(base, siteCookies, csrfToken, config.accounts[0]);
+  assert.equal(gieraelLogin.status, 303);
+  const gieraelCookie = firstCookie(gieraelLogin);
+  const gieraelCookies = `${siteCookies}; ${gieraelCookie}`;
+  const adminSettings = await fetch(`${base}/settings`, {
+    headers: { Cookie: gieraelCookies },
+  });
+  const adminHtml = await adminSettings.text();
+  assert.equal(adminSettings.status, 200);
+  assert.match(adminHtml, /Settings/);
+  assert.match(adminHtml, /Administrator/);
+  assert.match(adminHtml, /id="site-settings"/);
+
+  for (const contentPath of [
+    '/adventure',
+    '/timeline',
+    '/bucket',
+    '/reminders',
+    '/albums',
+    '/journal',
+  ]) {
+    const page = await fetch(`${base}${contentPath}`, {
+      headers: { Cookie: gieraelCookies },
+    });
+    assert.equal(page.status, 200, `${contentPath} should render for Gierael`);
+    await page.text();
+  }
+
+  const kimLogin = await signIn(base, siteCookies, csrfToken, config.accounts[1]);
+  assert.equal(kimLogin.status, 303);
+  const kimCookie = firstCookie(kimLogin);
+  const kimCookies = `${siteCookies}; ${kimCookie}`;
+  const memberSettings = await fetch(`${base}/settings`, {
+    headers: { Cookie: kimCookies },
+  });
+  const memberHtml = await memberSettings.text();
+  assert.equal(memberSettings.status, 200);
+  assert.match(memberHtml, /Member/);
+  assert.doesNotMatch(memberHtml, /id="site-settings"/);
+  assert.doesNotMatch(memberHtml, /Create backup now/);
+
+  const memberContent = await fetch(`${base}/albums`, {
+    headers: { Cookie: kimCookies },
+  });
+  assert.equal(memberContent.status, 200);
+  const memberReorder = await fetch(`${base}/bucket/reorder`, {
+    method: 'POST',
+    headers: {
+      Cookie: kimCookies,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ _csrf: csrfToken, ids: [] }),
+  });
+  assert.equal(memberReorder.status, 503);
+  const memberWrite = await fetch(`${base}/adventure`, {
+    method: 'POST',
+    redirect: 'manual',
+    headers: {
+      Cookie: kimCookies,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams({
+      _csrf: csrfToken,
+      vibe: 'cozy',
+      budget: '$',
+      location: 'at home',
+      notes: 'Member-authorized write',
+    }),
+  });
+  assert.notEqual(memberWrite.status, 403);
+  const memberExport = await fetch(`${base}/settings/exports`, {
+    redirect: 'manual',
+    headers: { Cookie: kimCookies },
+  });
+  assert.equal(memberExport.status, 403);
+  const memberSiteWrite = await fetch(`${base}/settings/site`, {
+    method: 'POST',
+    headers: {
+      Cookie: kimCookies,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams({ _csrf: csrfToken }),
+  });
+  assert.equal(memberSiteWrite.status, 403);
 
   const csrfFailure = await fetch(`${base}/lock`, {
     method: 'POST',
     redirect: 'manual',
     headers: {
-      Cookie: siteCookie,
+      Cookie: kimCookies,
       'Content-Type': 'application/x-www-form-urlencoded',
     },
     body: new URLSearchParams(),
   });
   assert.equal(csrfFailure.status, 403);
 
-  const siteCookies = `${csrfCookie}; ${siteCookie}`;
-  const adminLogin = await fetch(`${base}/admin/login`, {
-    headers: { Cookie: siteCookies },
-  });
-  assert.equal(adminLogin.status, 200);
-  const adminToken = csrfFrom(await adminLogin.text());
-
-  const adminAuthenticated = await fetch(`${base}/admin/login`, {
-    method: 'POST',
-    redirect: 'manual',
-    headers: {
-      Cookie: siteCookies,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: new URLSearchParams({
-      _csrf: adminToken,
-      password: config.adminPassword,
-    }),
-  });
-  assert.equal(adminAuthenticated.status, 303);
-  const adminCookie = firstCookie(adminAuthenticated);
-
-  const dashboard = await fetch(`${base}/admin`, {
-    headers: { Cookie: `${siteCookies}; ${adminCookie}` },
-  });
-  assert.equal(dashboard.status, 200);
-  assert.match(await dashboard.text(), /Admin Dashboard/);
-  for (const adminPath of ['/admin/bucket', '/admin/events', '/admin/albums', '/admin/journals']) {
-    const page = await fetch(`${base}${adminPath}`, {
-      headers: { Cookie: `${siteCookies}; ${adminCookie}` },
-    });
-    assert.equal(page.status, 200, `${adminPath} should render for an admin`);
-    assert.match(await page.text(), /database is unavailable/i);
-  }
-
   const relocked = await fetch(`${base}/lock`, {
     method: 'POST',
     redirect: 'manual',
     headers: {
-      Cookie: `${siteCookies}; ${adminCookie}`,
+      Cookie: kimCookies,
       'Content-Type': 'application/x-www-form-urlencoded',
     },
     body: new URLSearchParams({ _csrf: csrfToken }),
@@ -123,30 +244,79 @@ test('lock, separate admin login, CSRF failure, and logout flow', async (t) => {
   assert.equal(relocked.status, 303);
   const cleared = relocked.headers.get('set-cookie');
   assert.match(cleared, /gbagl_unlocked=.*Max-Age=0/);
-  assert.match(cleared, /gbagl_admin=.*Max-Age=0/);
+  assert.match(cleared, /gbagl_account=.*Max-Age=0/);
 });
 
-test('Layer 2 pages stay locked, degrade explicitly, and keep admin and CSRF boundaries', async (t) => {
-  const config = {
-    adminCookieHours: 12,
-    adminPassword: 'local-admin-passphrase',
-    backupDir: 'runtime/backups-test',
-    backupIntervalHours: 24,
-    backupMediaPaths: [],
-    backupRetention: 7,
-    cookieSecret: 'local-cookie-secret-for-layer-two-tests',
-    port: 0,
-    production: false,
-    sitePasscode: '8462',
-    uploadDir: 'runtime/uploads-http-test',
-    uploadMaxBytes: 1024,
-  };
-  const backupService = {
-    create: async () => ({ filename: 'unused.zip' }),
-    downloadPath: () => { throw new Error('not found'); },
-    list: async () => [],
-  };
-  const { app } = createApp(config, { backupService });
+test('passcode failures show attempt counts and a timed lockout', async (t) => {
+  const config = testConfig('http-passcode-limit-test');
+  const { app } = createApp(config, { backupService: backupService() });
+  const server = app.listen(0);
+  await new Promise((resolve) => server.once('listening', resolve));
+  t.after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+  });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const locked = await fetch(`${base}/`);
+  const csrfCookie = firstCookie(locked);
+  const csrfToken = csrfFrom(await locked.text());
+
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    const response = await fetch(`${base}/unlock`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: {
+        Cookie: csrfCookie,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        _csrf: csrfToken,
+        next: '/',
+        passcode: '0000',
+      }),
+    });
+    assert.equal(response.status, 401);
+    const html = await response.text();
+    assert.match(html, new RegExp(`Attempt ${attempt} of 5`));
+    if (attempt < 5) {
+      assert.match(html, new RegExp(`${5 - attempt} attempts? remaining`));
+    } else {
+      assert.match(html, /data-lockout-until="\d+"/);
+      assert.match(html, /Entry paused/);
+    }
+  }
+
+  const blocked = await fetch(`${base}/unlock`, {
+    method: 'POST',
+    redirect: 'manual',
+    headers: {
+      Cookie: csrfCookie,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams({
+      _csrf: csrfToken,
+      next: '/',
+      passcode: '0000',
+    }),
+  });
+  assert.equal(blocked.status, 429);
+  const blockedHtml = await blocked.text();
+  assert.match(blockedHtml, /Too many incorrect attempts/);
+  assert.match(blockedHtml, /Attempt 5 of 5/);
+  assert.match(blockedHtml, /data-lockout-until="\d+"/);
+
+  const refreshed = await fetch(`${base}/`, {
+    headers: { Cookie: csrfCookie },
+  });
+  assert.equal(refreshed.status, 401);
+  const refreshedHtml = await refreshed.text();
+  assert.match(refreshedHtml, /Attempt 5 of 5/);
+  assert.match(refreshedHtml, /data-lockout-until="\d+"/);
+  assert.match(refreshedHtml, /id="passcodeInput"[\s\S]*disabled/);
+});
+
+test('private pages degrade explicitly and upload ingress keeps auth and CSRF boundaries', async (t) => {
+  const config = testConfig('http-upload-test');
+  const { app } = createApp(config, { backupService: backupService() });
   const server = app.listen(0);
   await new Promise((resolve) => server.once('listening', resolve));
   t.after(async () => {
@@ -157,7 +327,7 @@ test('Layer 2 pages stay locked, degrade explicitly, and keep admin and CSRF bou
 
   const lockedForm = new FormData();
   lockedForm.append('photo', new Blob([Buffer.from([0xff, 0xd8, 0xff, 0xd9])]), 'photo.jpg');
-  const lockedUpload = await fetch(`${base}/admin/albums/photos/upload`, {
+  const lockedUpload = await fetch(`${base}/albums/photos/upload`, {
     method: 'POST',
     headers: { Accept: 'text/html' },
     body: lockedForm,
@@ -166,10 +336,8 @@ test('Layer 2 pages stay locked, degrade explicitly, and keep admin and CSRF bou
   assert.match(await lockedUpload.text(), /Enter Passcode/);
 
   const lockedAlbum = await fetch(`${base}/albums`, { redirect: 'manual' });
-  assert.equal(lockedAlbum.status, 401);
   const csrfCookie = firstCookie(lockedAlbum);
   const csrfToken = csrfFrom(await lockedAlbum.text());
-
   const unlock = await fetch(`${base}/unlock`, {
     method: 'POST',
     redirect: 'manual',
@@ -184,59 +352,51 @@ test('Layer 2 pages stay locked, degrade explicitly, and keep admin and CSRF bou
     }),
   });
   const siteCookie = firstCookie(unlock);
-  const cookies = `${csrfCookie}; ${siteCookie}`;
+  const siteCookies = `${csrfCookie}; ${siteCookie}`;
+
+  const homePhoto = await fetch(`${base}/media/home-photo`, {
+    headers: { Cookie: siteCookies },
+  });
+  assert.equal(homePhoto.status, 200);
+  assert.match(homePhoto.headers.get('content-type'), /image\/svg\+xml/);
+  assert.match(homePhoto.headers.get('cache-control'), /private/);
+  await homePhoto.arrayBuffer();
 
   for (const sitePath of ['/', '/bucket', '/reminders', '/albums', '/journal', '/timeline']) {
-    const page = await fetch(`${base}${sitePath}`, { headers: { Cookie: cookies } });
+    const page = await fetch(`${base}${sitePath}`, { headers: { Cookie: siteCookies } });
     assert.equal(page.status, 200, `${sitePath} should render after site unlock`);
     assert.match(await page.text(), /unavailable|offline/i);
   }
 
   const feed = await fetch(`${base}/reminders/feed.json`, {
-    headers: { Cookie: cookies },
+    headers: { Cookie: siteCookies },
   });
   assert.equal(feed.status, 503);
   assert.match(feed.headers.get('cache-control'), /no-store/);
   assert.deepEqual(await feed.json(), { error: 'Reminders are unavailable' });
 
-  const adminBoundary = await fetch(`${base}/admin/bucket`, {
-    redirect: 'manual',
-    headers: { Cookie: cookies },
-  });
-  assert.equal(adminBoundary.status, 303);
-  assert.equal(adminBoundary.headers.get('location'), '/admin/login');
+  const login = await signIn(base, siteCookies, csrfToken, config.accounts[0]);
+  const accountCookie = firstCookie(login);
+  const accountCookies = `${siteCookies}; ${accountCookie}`;
 
-  const csrfBoundary = await fetch(`${base}/bucket/1/favorite`, {
-    method: 'POST',
-    headers: {
-      Cookie: cookies,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: new URLSearchParams(),
-  });
-  assert.equal(csrfBoundary.status, 403);
-
-  const loginPage = await fetch(`${base}/admin/login`, { headers: { Cookie: cookies } });
-  const loginToken = csrfFrom(await loginPage.text());
-  const login = await fetch(`${base}/admin/login`, {
+  const homePhotoForm = new FormData();
+  homePhotoForm.append('_csrf', csrfToken);
+  homePhotoForm.append('photo', new Blob([Buffer.from([0xff, 0xd8, 0xff, 0xd9])]), 'photo.jpg');
+  const unavailableHomeUpload = await fetch(`${base}/home-photo`, {
     method: 'POST',
     redirect: 'manual',
-    headers: {
-      Cookie: cookies,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: new URLSearchParams({
-      _csrf: loginToken,
-      password: config.adminPassword,
-    }),
+    headers: { Cookie: accountCookies },
+    body: homePhotoForm,
   });
-  const adminCookie = firstCookie(login);
-  const form = new FormData();
-  form.append('photo', new Blob([Buffer.from([0xff, 0xd8, 0xff, 0xd9])]), 'photo.jpg');
-  const rejectedUpload = await fetch(`${base}/admin/albums/photos/upload`, {
+  assert.equal(unavailableHomeUpload.status, 303);
+  assert.match(unavailableHomeUpload.headers.get('location'), /^\/\?error=/);
+
+  const rejectedForm = new FormData();
+  rejectedForm.append('photo', new Blob([Buffer.from([0xff, 0xd8, 0xff, 0xd9])]), 'photo.jpg');
+  const rejectedUpload = await fetch(`${base}/albums/photos/upload`, {
     method: 'POST',
-    headers: { Cookie: `${cookies}; ${adminCookie}` },
-    body: form,
+    headers: { Cookie: accountCookies },
+    body: rejectedForm,
   });
   assert.equal(rejectedUpload.status, 403);
   await new Promise((resolve) => setTimeout(resolve, 20));
@@ -245,9 +405,9 @@ test('Layer 2 pages stay locked, degrade explicitly, and keep admin and CSRF bou
   const invalidForm = new FormData();
   invalidForm.append('_csrf', 'invalid-token');
   invalidForm.append('photo', new Blob([Buffer.from([0xff, 0xd8, 0xff, 0xd9])]), 'photo.jpg');
-  const invalidUpload = await fetch(`${base}/admin/albums/photos/upload`, {
+  const invalidUpload = await fetch(`${base}/albums/photos/upload`, {
     method: 'POST',
-    headers: { Cookie: `${cookies}; ${adminCookie}` },
+    headers: { Cookie: accountCookies },
     body: invalidForm,
   });
   assert.equal(invalidUpload.status, 403);

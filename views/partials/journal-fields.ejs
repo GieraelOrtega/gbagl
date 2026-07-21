@@ -14,7 +14,7 @@
     <select class="form-select" id="<%= prefix %>-milestone" name="milestone_id">
       <option value="">None</option>
       <% milestones.forEach((milestone) => { %>
-        <option value="<%= milestone.id %>" <%= entry.milestone_id === milestone.id ? 'selected' : '' %>><%= milestone.title %></option>
+        <option value="<%= milestone.id %>" <%= Number(entry.milestone_id) === Number(milestone.id) ? 'selected' : '' %>><%= milestone.title %></option>
       <% }) %>
     </select>
   </div>
