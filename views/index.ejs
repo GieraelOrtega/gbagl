@@ -2,6 +2,12 @@
 <%- include('partials/nav') %>
 
 <main>
+  <% if (message || error) { %>
+    <div class="container home-alerts">
+      <% if (message) { %><div class="alert alert--success"><%= message %></div><% } %>
+      <% if (error) { %><div class="alert alert--error"><%= error %></div><% } %>
+    </div>
+  <% } %>
   <section class="hero">
     <div class="hero__text">
       <p class="hero__eyebrow"><%= settings.partner_one_name || 'Gierael' %> &amp; <%= settings.partner_two_name || 'Kim' %></p>
@@ -20,27 +26,27 @@
       <% } %>
     </div>
 
-    <div class="collage" aria-label="Our photo memories">
-      <div class="collage__item collage__item--tall">
-        <img src="/images/photo-1.svg" alt="Favorite memory placeholder"
-             class="collage__img" loading="lazy" />
-      </div>
-      <div class="collage__item">
-        <img src="/images/photo-2.svg" alt="Shared memory placeholder"
-             class="collage__img" loading="lazy" />
-      </div>
-      <div class="collage__item">
-        <img src="/images/photo-3.svg" alt="Adventure memory placeholder"
-             class="collage__img" loading="lazy" />
-      </div>
-      <div class="collage__item">
-        <img src="/images/photo-4.svg" alt="Cozy memory placeholder"
-             class="collage__img" loading="lazy" />
-      </div>
-      <div class="collage__item">
-        <img src="/images/photo-5.svg" alt="Happy memory placeholder"
-             class="collage__img" loading="lazy" />
-      </div>
+    <div class="hero-photo-wrap">
+      <figure class="hero-photo">
+        <img src="/media/home-photo" data-private-media
+             alt="<%= settings.partner_one_name || 'Gierael' %> and <%= settings.partner_two_name || 'Kim' %> enjoying a night market together"
+             loading="eager" />
+      </figure>
+      <% if (canEdit) { %>
+        <details class="editor-panel hero-photo-editor">
+          <summary>Change home photo</summary>
+          <form action="/home-photo" method="post" enctype="multipart/form-data"
+                class="admin-form">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+            <div class="form-group">
+              <label class="form-label" for="home-photo">JPEG, PNG, or WebP</label>
+              <input class="form-input" id="home-photo" name="photo" type="file"
+                     accept="image/jpeg,image/png,image/webp" required />
+            </div>
+            <button type="submit" class="btn btn--primary">Update home photo</button>
+          </form>
+        </details>
+      <% } %>
     </div>
   </section>
 

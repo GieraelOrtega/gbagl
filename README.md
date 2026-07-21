@@ -40,7 +40,7 @@ Production startup fails clearly unless all of the following are present and suf
 
 The site passcode and both account passwords must be different, and the two account passwords cannot be shared. `BACKUP_INTERVAL_HOURS` must be between 1 and 596 so it remains within Node's safe timer range. Authentication comparisons are timing-safe. Production redirects insecure requests to `PUBLIC_ORIGIN` before parsing request bodies or serving authentication forms. Only exact configured proxy addresses can supply trusted forwarding headers, preventing direct clients from spoofing HTTPS or rate-limit identities. Cookies are signed, `HttpOnly`, `Secure` in production, and `SameSite=Strict`.
 
-The site lock protects all content and static media. Unlocking with `SITE_PASSCODE` grants read-only viewer access. Gierael and Kim sign in separately from Settings: Kim can manage shared content, while Gierael can also change site configuration, create/download backups, and generate exports. Every write is checked server-side; hiding controls is not the authorization boundary. Login attempts are rate-limited.
+The site lock protects all content and static media. Unlocking with `SITE_PASSCODE` grants read-only viewer access. Gierael and Kim sign in separately from Settings: Kim can manage shared content, while Gierael can also change site configuration, create/download backups, and generate exports. Every write is checked server-side; hiding controls is not the authorization boundary. The passcode screen shows the current failed-attempt count and a live timeout after five failures.
 
 `POST /lock` remains the authenticated revocation endpoint and clears both site and account cookies plus private browser data. It is intentionally a POST, but the former main-navigation **Lock Now** control has been removed.
 
@@ -77,13 +77,15 @@ On the first migration, startup imports the current `data/timeline.js` array if 
 
 The initial placeholder settings are Gierael, Kim, and the December 8, 2025 anniversary. A durable one-time migration upgrades only untouched placeholder/blank values and replaces only the untouched first timeline placeholder with the “Officially Us” milestone. Later customizations—including intentionally clearing the anniversary—survive restarts.
 
-The timeline reads ordered database milestones and falls back to `data/timeline.js` if MySQL is unavailable. Journal and other Layer 2 pages report database outages explicitly instead of fabricating data. Settings manages appearance, timeline milestones, existing date ideas, and shared content; Gierael additionally manages partner display names, anniversary date, timezone, backups, and exports. SQL writes are parameterized and inputs are validated server-side.
+The timeline reads ordered database milestones and falls back to `data/timeline.js` if MySQL is unavailable. Journal and other Layer 2 pages report database outages explicitly instead of fabricating data. Signed-in members add, edit, delete, and reorder content directly on its corresponding page; timeline edit mode exposes a granular form for every milestone. Settings retains appearance, account, and administrator controls only. SQL writes are parameterized and inputs are validated server-side.
+
+Adventure ideas, milestones, Bucket List items, events, albums, photos, and journal entries all have durable `display_order` values. Reorder requests require a member session and CSRF token, validate the complete current ID set, and commit the new sequence in one transaction. Touch drag handles and accessible Up/Down controls use the same endpoint.
 
 The anniversary date may be left unset; the home page does not invent one. Leap-day anniversaries use February 28 in non-leap years. Event times are entered in the configured IANA timezone and stored as UTC.
 
 ## Albums and reminders
 
-New album uploads are written under `UPLOAD_DIR` (default `runtime/uploads`) and are never exposed by static middleware. Signed-in members can upload only JPEG, PNG, or WebP; the server enforces `UPLOAD_MAX_BYTES`, checks file signatures, assigns random storage names, and cleans rejected files. Album views retrieve media through authenticated, ID-based routes with private no-store and `nosniff` headers.
+New album and home-photo uploads are written under `UPLOAD_DIR` (default `runtime/uploads`) and are never exposed by static middleware. Signed-in members can upload only JPEG, PNG, or WebP; the server enforces `UPLOAD_MAX_BYTES`, checks file signatures, assigns random storage names, and cleans rejected files. Album views and the home hero retrieve media through authenticated routes with private no-store and `nosniff` headers.
 
 Deployment-local images already under `public/images` can be linked by an explicit `/images/<basename>` reference. The application does not enumerate that directory. Keep private deployment images out of GitHub.
 
@@ -98,7 +100,7 @@ When a service worker registration is available, due alerts use service-worker n
 The versioned service worker keeps two separate caches:
 
 - The public shell contains only the lock/offline stylesheet, scripts, manifest, and icons. It contains no relationship data.
-- The private cache accepts only server-opted-in, read-only snapshots of `/`, `/timeline`, `/bucket`, `/reminders`, `/albums`, `/albums/:id`, and `/journal`, plus successfully authorized album photo responses. Live HTML with forms or CSRF tokens is never stored.
+- The private cache accepts only server-opted-in, read-only snapshots of `/`, `/timeline`, `/bucket`, `/reminders`, `/albums`, `/albums/:id`, and `/journal`, plus successfully authorized album and home-photo responses. Live HTML with forms or CSRF tokens is never stored.
 
 Settings pages, backup and keepsake downloads, reminder JSON, calendar downloads, writes, redirects, cross-origin resources, authorization failures, and arbitrary paths are never cached. Previously viewed private pages can be read offline, but all forms are absent from offline snapshots and live mutation controls disable when the browser goes offline.
 
@@ -144,16 +146,16 @@ Backups use one repeatable-read MySQL snapshot for all exported tables, preserve
 |---|---|---|
 | `/` | Viewer | Home |
 | `/adventure` | Viewer read; member write | Date-idea planner |
-| `/timeline` | Viewer | Relationship timeline |
+| `/timeline` | Viewer read; member write | Ordered relationship timeline and granular milestone editing |
 | `/bucket` | Viewer read; member write | Shared bucket list, votes, completion, and memories |
 | `/reminders` | Viewer read; member write | Upcoming/past events, browser reminders, and ICS files |
 | `/reminders/feed.json` | Viewer | Minimal no-store due-reminder feed |
-| `/albums` | Viewer | Protected album gallery |
+| `/albums` | Viewer read; member write | Ordered protected albums and photos |
 | `/albums/photos/:id/content` | Viewer | ID-based private photo response |
-| `/journal` | Viewer | Shared journal |
+| `/media/home-photo` | Viewer | Protected home hero photo |
+| `/journal` | Viewer read; member write | Ordered shared journal |
 | `/settings/login` | Viewer | Gierael/Kim account sign-in |
-| `/settings` | Member | Appearance, account details, timeline, ideas, and content links |
-| `/settings/content/*` | Member | Bucket, event, album/photo, and journal management |
+| `/settings` | Member | Appearance, account details, and links to in-page content editors |
 | `/settings/exports` | Gierael only | Sensitive PDF and portable ZIP keepsake downloads |
 | `POST /settings/site` | Gierael only | Partner names, anniversary, and timezone |
 | `/settings/backups/*` | Gierael only | Backup creation and downloads |
@@ -161,7 +163,7 @@ Backups use one repeatable-read MySQL snapshot for all exported tables, preserve
 
 ## Private deployment data
 
-The public repository intentionally contains placeholders rather than personal photos or customized timeline entries. Keep deployment-only media and data in the private deployment commit. Existing compatible paths such as `public/images` and `data/timeline.js` remain supported.
+The public repository intentionally contains placeholders rather than personal photos or customized timeline entries. Runtime uploads—including the home hero photo—remain outside Git. Keep other deployment-only media and timeline data in the private deployment commit. Existing compatible paths such as `public/images` and `data/timeline.js` remain supported.
 
 Do not commit `.env`, runtime uploads, backup archives, database exports, or private media. This project does not automatically upload backups off-host.
 

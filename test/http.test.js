@@ -123,12 +123,12 @@ test('viewer, Kim member, and Gierael administrator boundaries are enforced', as
   });
   assert.equal(viewerWrite.status, 403);
 
-  const contentBoundary = await fetch(`${base}/settings/content/bucket`, {
+  const retiredContentPage = await fetch(`${base}/settings/content/bucket`, {
     redirect: 'manual',
     headers: { Cookie: siteCookies },
   });
-  assert.equal(contentBoundary.status, 303);
-  assert.equal(contentBoundary.headers.get('location'), '/settings/login');
+  assert.equal(retiredContentPage.status, 303);
+  assert.equal(retiredContentPage.headers.get('location'), '/settings/login');
 
   const loginPage = await fetch(`${base}/settings/login`, {
     headers: { Cookie: siteCookies },
@@ -150,16 +150,18 @@ test('viewer, Kim member, and Gierael administrator boundaries are enforced', as
   assert.match(adminHtml, /id="site-settings"/);
 
   for (const contentPath of [
-    '/settings/content/bucket',
-    '/settings/content/events',
-    '/settings/content/albums',
-    '/settings/content/journals',
+    '/adventure',
+    '/timeline',
+    '/bucket',
+    '/reminders',
+    '/albums',
+    '/journal',
   ]) {
     const page = await fetch(`${base}${contentPath}`, {
       headers: { Cookie: gieraelCookies },
     });
     assert.equal(page.status, 200, `${contentPath} should render for Gierael`);
-    assert.match(await page.text(), /database is unavailable/i);
+    await page.text();
   }
 
   const kimLogin = await signIn(base, siteCookies, csrfToken, config.accounts[1]);
@@ -175,10 +177,19 @@ test('viewer, Kim member, and Gierael administrator boundaries are enforced', as
   assert.doesNotMatch(memberHtml, /id="site-settings"/);
   assert.doesNotMatch(memberHtml, /Create backup now/);
 
-  const memberContent = await fetch(`${base}/settings/content/albums`, {
+  const memberContent = await fetch(`${base}/albums`, {
     headers: { Cookie: kimCookies },
   });
   assert.equal(memberContent.status, 200);
+  const memberReorder = await fetch(`${base}/bucket/reorder`, {
+    method: 'POST',
+    headers: {
+      Cookie: kimCookies,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ _csrf: csrfToken, ids: [] }),
+  });
+  assert.equal(memberReorder.status, 503);
   const memberWrite = await fetch(`${base}/adventure`, {
     method: 'POST',
     redirect: 'manual',
@@ -236,6 +247,73 @@ test('viewer, Kim member, and Gierael administrator boundaries are enforced', as
   assert.match(cleared, /gbagl_account=.*Max-Age=0/);
 });
 
+test('passcode failures show attempt counts and a timed lockout', async (t) => {
+  const config = testConfig('http-passcode-limit-test');
+  const { app } = createApp(config, { backupService: backupService() });
+  const server = app.listen(0);
+  await new Promise((resolve) => server.once('listening', resolve));
+  t.after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+  });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const locked = await fetch(`${base}/`);
+  const csrfCookie = firstCookie(locked);
+  const csrfToken = csrfFrom(await locked.text());
+
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    const response = await fetch(`${base}/unlock`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: {
+        Cookie: csrfCookie,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        _csrf: csrfToken,
+        next: '/',
+        passcode: '0000',
+      }),
+    });
+    assert.equal(response.status, 401);
+    const html = await response.text();
+    assert.match(html, new RegExp(`Attempt ${attempt} of 5`));
+    if (attempt < 5) {
+      assert.match(html, new RegExp(`${5 - attempt} attempts? remaining`));
+    } else {
+      assert.match(html, /data-lockout-until="\d+"/);
+      assert.match(html, /Entry paused/);
+    }
+  }
+
+  const blocked = await fetch(`${base}/unlock`, {
+    method: 'POST',
+    redirect: 'manual',
+    headers: {
+      Cookie: csrfCookie,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams({
+      _csrf: csrfToken,
+      next: '/',
+      passcode: '0000',
+    }),
+  });
+  assert.equal(blocked.status, 429);
+  const blockedHtml = await blocked.text();
+  assert.match(blockedHtml, /Too many incorrect attempts/);
+  assert.match(blockedHtml, /Attempt 5 of 5/);
+  assert.match(blockedHtml, /data-lockout-until="\d+"/);
+
+  const refreshed = await fetch(`${base}/`, {
+    headers: { Cookie: csrfCookie },
+  });
+  assert.equal(refreshed.status, 401);
+  const refreshedHtml = await refreshed.text();
+  assert.match(refreshedHtml, /Attempt 5 of 5/);
+  assert.match(refreshedHtml, /data-lockout-until="\d+"/);
+  assert.match(refreshedHtml, /id="passcodeInput"[\s\S]*disabled/);
+});
+
 test('private pages degrade explicitly and upload ingress keeps auth and CSRF boundaries', async (t) => {
   const config = testConfig('http-upload-test');
   const { app } = createApp(config, { backupService: backupService() });
@@ -249,7 +327,7 @@ test('private pages degrade explicitly and upload ingress keeps auth and CSRF bo
 
   const lockedForm = new FormData();
   lockedForm.append('photo', new Blob([Buffer.from([0xff, 0xd8, 0xff, 0xd9])]), 'photo.jpg');
-  const lockedUpload = await fetch(`${base}/settings/content/albums/photos/upload`, {
+  const lockedUpload = await fetch(`${base}/albums/photos/upload`, {
     method: 'POST',
     headers: { Accept: 'text/html' },
     body: lockedForm,
@@ -276,6 +354,14 @@ test('private pages degrade explicitly and upload ingress keeps auth and CSRF bo
   const siteCookie = firstCookie(unlock);
   const siteCookies = `${csrfCookie}; ${siteCookie}`;
 
+  const homePhoto = await fetch(`${base}/media/home-photo`, {
+    headers: { Cookie: siteCookies },
+  });
+  assert.equal(homePhoto.status, 200);
+  assert.match(homePhoto.headers.get('content-type'), /image\/svg\+xml/);
+  assert.match(homePhoto.headers.get('cache-control'), /private/);
+  await homePhoto.arrayBuffer();
+
   for (const sitePath of ['/', '/bucket', '/reminders', '/albums', '/journal', '/timeline']) {
     const page = await fetch(`${base}${sitePath}`, { headers: { Cookie: siteCookies } });
     assert.equal(page.status, 200, `${sitePath} should render after site unlock`);
@@ -293,9 +379,21 @@ test('private pages degrade explicitly and upload ingress keeps auth and CSRF bo
   const accountCookie = firstCookie(login);
   const accountCookies = `${siteCookies}; ${accountCookie}`;
 
+  const homePhotoForm = new FormData();
+  homePhotoForm.append('_csrf', csrfToken);
+  homePhotoForm.append('photo', new Blob([Buffer.from([0xff, 0xd8, 0xff, 0xd9])]), 'photo.jpg');
+  const unavailableHomeUpload = await fetch(`${base}/home-photo`, {
+    method: 'POST',
+    redirect: 'manual',
+    headers: { Cookie: accountCookies },
+    body: homePhotoForm,
+  });
+  assert.equal(unavailableHomeUpload.status, 303);
+  assert.match(unavailableHomeUpload.headers.get('location'), /^\/\?error=/);
+
   const rejectedForm = new FormData();
   rejectedForm.append('photo', new Blob([Buffer.from([0xff, 0xd8, 0xff, 0xd9])]), 'photo.jpg');
-  const rejectedUpload = await fetch(`${base}/settings/content/albums/photos/upload`, {
+  const rejectedUpload = await fetch(`${base}/albums/photos/upload`, {
     method: 'POST',
     headers: { Cookie: accountCookies },
     body: rejectedForm,
@@ -307,7 +405,7 @@ test('private pages degrade explicitly and upload ingress keeps auth and CSRF bo
   const invalidForm = new FormData();
   invalidForm.append('_csrf', 'invalid-token');
   invalidForm.append('photo', new Blob([Buffer.from([0xff, 0xd8, 0xff, 0xd9])]), 'photo.jpg');
-  const invalidUpload = await fetch(`${base}/settings/content/albums/photos/upload`, {
+  const invalidUpload = await fetch(`${base}/albums/photos/upload`, {
     method: 'POST',
     headers: { Cookie: accountCookies },
     body: invalidForm,

@@ -22,6 +22,7 @@ test('PWA policy separates public shell, read-only snapshots, and protected medi
   assert.equal(isPrivateSnapshotPath('/settings'), false);
   assert.equal(isPrivateSnapshotPath('/reminders/feed.json'), false);
   assert.equal(isPrivateMediaPath('/albums/photos/8/content'), true);
+  assert.equal(isPrivateMediaPath('/media/home-photo'), true);
   assert.equal(isPrivateMediaPath('/images/private.jpg'), false);
   assert.equal(SNAPSHOT_OPT_IN, 'read-only-v1');
   assert.equal(MEDIA_OPT_IN, 'media-v1');
@@ -73,6 +74,7 @@ test('service worker implements version cleanup, auth purge, and explicit clear 
   assert.match(source, /X-GBAGL-Authorization-Lost/);
   assert.match(source, /CLEAR_PRIVATE_DATA/);
   assert.match(source, /AUTHORIZE_PRIVATE_CACHE/);
+  assert.match(source, /cacheAuthorizedMedia/);
   assert.match(source, /authorizationGeneration !== privateGeneration/);
   assert.match(source, /withPrivateCache/);
   assert.match(source, /mutationResponse/);
@@ -110,6 +112,19 @@ test('install control appears only at the lock-screen bottom and Online text is 
   assert.doesNotMatch(lock, />Online|data-network-status/);
   assert.match(lock, /class="lock-install" data-pwa-controls/);
   assert.match(lock, /data-install-app>Install Now/);
+  assert.match(lock, /passcode__submit visually-hidden/);
+  assert.match(lock, /Five incorrect attempts pause entry for 15 minutes/);
+  const styles = fs.readFileSync(
+    path.join(__dirname, '..', 'public', 'css', 'style.css'),
+    'utf8',
+  );
+  assert.match(styles, /\.lock-screen\s*\{[\s\S]*height:\s*100dvh/);
+  assert.match(styles, /\.lock-screen\s*\{[\s\S]*overflow:\s*hidden/);
+  assert.match(styles, /\.lock-install\s*\{[\s\S]*position:\s*relative/);
+  assert.match(
+    styles,
+    /@media \(max-height: 430px\)[\s\S]*grid-template-columns: repeat\(3, 44px\)/,
+  );
 });
 
 test('landing page exposes the complete feature set and corrected Bucket List label', () => {
@@ -120,6 +135,8 @@ test('landing page exposes the complete feature set and corrected Bucket List la
   assert.equal((index.match(/class="feature-card"/g) || []).length, 6);
   assert.match(index, /settings\.partner_one_name/);
   assert.match(index, /anniversaryDisplay/);
+  assert.match(index, /src="\/media\/home-photo" data-private-media/);
+  assert.doesNotMatch(index, /photo-[1-5]\.svg/);
   assert.doesNotMatch(index, /Together since December 8, 2025/);
 });
 

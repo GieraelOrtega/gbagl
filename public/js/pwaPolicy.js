@@ -30,7 +30,8 @@
   }
 
   function isPrivateMediaPath(pathname) {
-    return /^\/albums\/photos\/[1-9]\d*\/content$/.test(pathname);
+    return pathname === '/media/home-photo'
+      || /^\/albums\/photos\/[1-9]\d*\/content$/.test(pathname);
   }
 
   function sameOriginUrl(value, origin) {

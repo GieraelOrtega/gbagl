@@ -5,6 +5,12 @@
     return document.querySelectorAll('[data-install-app]');
   }
 
+  function privateMediaUrls() {
+    return Array.from(document.querySelectorAll('[data-private-media]'))
+      .map((element) => element.currentSrc || element.src)
+      .filter(Boolean);
+  }
+
   function isInstalled() {
     return window.matchMedia?.('(display-mode: standalone)')?.matches
       || navigator.standalone === true;
@@ -138,6 +144,7 @@
       || registration?.active
       || registration?.waiting;
     worker?.postMessage({
+      mediaUrls: privateMediaUrls(),
       type: 'AUTHORIZE_PRIVATE_CACHE',
       url: window.location.href,
     });

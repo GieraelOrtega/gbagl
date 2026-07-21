@@ -58,14 +58,22 @@
       <p class="admin-help">Account passwords are deployment secrets. Change the related environment variable and restart the app to rotate one.</p>
     </section>
 
-    <nav class="admin-tools" aria-label="Shared content management">
+    <section class="card admin-section" aria-labelledby="content-pages-title">
+      <h2 class="card__title" id="content-pages-title">Content pages</h2>
+      <p class="admin-help">
+        Adding, editing, and reordering now happens directly on each page so you
+        can see every change in context.
+      </p>
+      <nav class="admin-tools" aria-label="Shared content pages">
       <a class="btn btn--outline" href="/adventure">Adventure planner</a>
-      <a class="btn btn--outline" href="/settings/content/bucket">Bucket List</a>
-      <a class="btn btn--outline" href="/settings/content/events">Events</a>
-      <a class="btn btn--outline" href="/settings/content/albums">Albums &amp; photos</a>
-      <a class="btn btn--outline" href="/settings/content/journals">Journal entries</a>
+      <a class="btn btn--outline" href="/timeline">Timeline</a>
+      <a class="btn btn--outline" href="/bucket">Bucket List</a>
+      <a class="btn btn--outline" href="/reminders">Events</a>
+      <a class="btn btn--outline" href="/albums">Albums &amp; photos</a>
+      <a class="btn btn--outline" href="/journal">Journal entries</a>
       <% if (isAdmin) { %><a class="btn btn--outline" href="/settings/exports">Keepsake exports</a><% } %>
-    </nav>
+      </nav>
+    </section>
 
     <% if (isAdmin) { %>
       <section class="card admin-section" id="site-settings">
@@ -98,76 +106,6 @@
         </form>
       </section>
     <% } %>
-
-    <section class="card admin-section">
-      <h2 class="card__title">Add timeline milestone</h2>
-      <form action="/settings/timeline" method="post" class="admin-form">
-        <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-        <%- include('partials/milestone-fields', { milestone: {
-          display_order: milestones.length,
-          date: '',
-          title: '',
-          description: '',
-          emoji: '',
-          photo: '',
-          link_url: ''
-        }, prefix: 'new' }) %>
-        <button type="submit" class="btn btn--primary">Add milestone</button>
-      </form>
-    </section>
-
-    <section class="admin-section">
-      <h2 class="section-title section-title--left">Timeline milestones</h2>
-      <div class="admin-stack">
-        <% milestones.forEach((milestone) => { %>
-          <article class="card">
-            <form action="/settings/timeline/<%= milestone.id %>" method="post" class="admin-form">
-              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-              <%- include('partials/milestone-fields', {
-                milestone,
-                prefix: `milestone-${milestone.id}`
-              }) %>
-              <button type="submit" class="btn btn--primary">Update milestone</button>
-            </form>
-            <form action="/settings/timeline/<%= milestone.id %>/delete" method="post"
-                  class="admin-danger">
-              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-              <button type="submit" class="btn btn--outline">Delete milestone</button>
-            </form>
-          </article>
-        <% }) %>
-      </div>
-    </section>
-
-    <section class="admin-section">
-      <h2 class="section-title section-title--left">Adventure ideas</h2>
-      <div class="admin-stack">
-        <% ideas.forEach((idea) => { %>
-          <article class="card admin-row">
-            <div>
-              <strong><%= idea.vibe %> · <%= idea.location %> · <%= idea.budget %></strong>
-              <p><%= idea.notes || 'No notes' %></p>
-            </div>
-            <form action="/settings/ideas/<%= idea.id %>/status" method="post" class="admin-inline">
-              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-              <label class="visually-hidden" for="idea-status-<%= idea.id %>">Status</label>
-              <select class="form-select" id="idea-status-<%= idea.id %>" name="status">
-                <% ['pending', 'done', 'favorite'].forEach((status) => { %>
-                  <option value="<%= status %>" <%= idea.status === status ? 'selected' : '' %>>
-                    <%= status %>
-                  </option>
-                <% }) %>
-              </select>
-              <button type="submit" class="btn btn--outline">Update</button>
-            </form>
-            <form action="/settings/ideas/<%= idea.id %>/delete" method="post">
-              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-              <button type="submit" class="btn btn--outline">Delete</button>
-            </form>
-          </article>
-        <% }) %>
-      </div>
-    </section>
 
     <% if (isAdmin) { %>
       <section class="card admin-section">

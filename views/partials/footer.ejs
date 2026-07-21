@@ -4,6 +4,7 @@
     </div>
   </footer>
   <% if (!offlineSnapshot) { %><script src="/js/main.js"></script><% } %>
+  <% if (canEdit && !offlineSnapshot) { %><script src="/js/contentEditor.js"></script><% } %>
   <script src="/js/pwa.js"></script>
   <% if (page === 'reminders' && !offlineSnapshot) { %>
     <script src="/js/reminderFormat.js"></script>

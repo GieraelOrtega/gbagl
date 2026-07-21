@@ -17,6 +17,7 @@
   <link rel="stylesheet" href="/css/style.css" />
 </head>
 <body class="lock-screen" data-locked-state>
+  <% const lockedOut = Boolean(attempts && attempts.lockoutUntil); %>
   <main class="lock-screen__main">
     <div class="lock-screen__glow" aria-hidden="true"></div>
 
@@ -34,7 +35,8 @@
         <label class="visually-hidden" for="passcodeInput">4-digit passcode</label>
         <input class="passcode__input" id="passcodeInput" name="passcode"
                type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4"
-               autocomplete="off" autofocus required />
+               autocomplete="off" tabindex="-1" aria-hidden="true"
+               <%= lockedOut ? 'disabled' : '' %> required />
 
         <div class="passcode__dots" aria-hidden="true">
           <% for (let i = 0; i < 4; i += 1) { %>
@@ -45,20 +47,36 @@
         <p class="passcode__message" id="passcodeMessage" aria-live="polite">
           <%= error || '' %>
         </p>
+        <p class="passcode__policy" id="passcodePolicy"
+           <% if (lockedOut) { %>data-lockout-until="<%= attempts.lockoutUntil %>"<% } %>
+           role="status" aria-live="polite">
+          <% if (lockedOut) { %>
+             Attempt <%= attempts.used %> of <%= attempts.limit %>.
+             Entry paused. Try again in <span data-lockout-countdown>15:00</span>.
+          <% } else if (attempts) { %>
+            Attempt <%= attempts.used %> of <%= attempts.limit %> ·
+            <%= attempts.remaining %> attempt<%= attempts.remaining === 1 ? '' : 's' %> remaining.
+          <% } else { %>
+            Five incorrect attempts pause entry for 15 minutes.
+          <% } %>
+        </p>
 
         <div class="keypad" aria-label="Numeric keypad">
           <% for (let number = 1; number <= 9; number += 1) { %>
-            <button class="keypad__key" type="button" data-digit="<%= number %>">
+            <button class="keypad__key" type="button" data-digit="<%= number %>"
+                    <%= lockedOut ? 'disabled' : '' %>>
               <span><%= number %></span>
             </button>
           <% } %>
           <span></span>
-          <button class="keypad__key" type="button" data-digit="0"><span>0</span></button>
+          <button class="keypad__key" type="button" data-digit="0"
+                  <%= lockedOut ? 'disabled' : '' %>><span>0</span></button>
           <button class="keypad__delete" type="button" id="passcodeDelete"
-                  aria-label="Delete last digit">Delete</button>
+                  aria-label="Delete last digit" <%= lockedOut ? 'disabled' : '' %>>Delete</button>
         </div>
 
-        <button class="passcode__submit" type="submit">Unlock</button>
+        <button class="passcode__submit visually-hidden" type="submit"
+                <%= lockedOut ? 'disabled' : '' %>>Unlock</button>
       </form>
     </section>
   </main>

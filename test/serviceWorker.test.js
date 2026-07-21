@@ -373,6 +373,31 @@ test('authenticated snapshot refreshes preserve the active private cache', async
   assert.equal(await timeline.text(), 'timeline snapshot');
 });
 
+test('authorization explicitly caches requested private media for the first offline view', async () => {
+  const harness = createWorkerHarness();
+  const mediaUrl = 'https://gba.gl/media/home-photo';
+  harness.state.fetchImpl = async (request) => (
+    request.url === mediaUrl
+      ? response('home photo', {
+        cacheOptIn: policy.MEDIA_OPT_IN,
+        contentType: 'image/jpeg',
+      })
+      : response('home snapshot', { cacheOptIn: policy.SNAPSHOT_OPT_IN })
+  );
+  await harness.hooks.authorizePrivateCache(
+    'https://gba.gl/',
+    () => {},
+    [mediaUrl, 'https://evil.example/media/home-photo'],
+  );
+
+  const privateCache = harness.cacheData.get(harness.hooks.state().cacheName);
+  assert.equal(await privateCache.get(mediaUrl).text(), 'home photo');
+  assert.equal(
+    [...privateCache.keys()].some((url) => url.startsWith('https://evil.example/')),
+    false,
+  );
+});
+
 test('revocation prevents an older in-flight media response from caching', async () => {
   const harness = createWorkerHarness();
   await authorize(harness);

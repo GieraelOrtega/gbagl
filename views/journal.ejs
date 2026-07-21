@@ -6,16 +6,67 @@
       <h1 class="page-header__title">Shared Journal</h1>
       <p class="page-header__subtitle">Private reflections from the life you are building together.</p>
     </header>
+
+    <% if (message) { %><div class="alert alert--success"><%= message %></div><% } %>
+    <% if (error) { %><div class="alert alert--error"><%= error %></div><% } %>
     <% if (dbError) { %><div class="alert alert--warning"><%= dbError %></div><% } %>
-    <% entries.forEach((entry) => { %>
-      <article class="card journal-entry">
-        <p class="tag"><%= entry.entry_date %></p>
-        <h2 class="card__title"><%= entry.title %></h2>
-        <% if (entry.milestone_title) { %><p><small>Linked to <%= entry.milestone_title %></small></p><% } %>
-        <p class="preserve-lines"><%= entry.body %></p>
-      </article>
-    <% }) %>
-    <% if (!dbError && entries.length === 0) { %><div class="empty-state">No journal entries yet.</div><% } %>
+    <% if (!canEdit && !offlineSnapshot) { %>
+      <div class="read-only-note">View-only mode: sign in from Settings to add, edit, or reorder journal entries.</div>
+    <% } %>
+
+    <% if (!dbError && canEdit) { %>
+      <details class="card editor-panel">
+        <summary>Write a journal entry</summary>
+        <form action="/journal" method="post" class="admin-form">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+          <%- include('partials/journal-fields', {
+            entry: { milestone_id: null, title: '', body: '', entry_date: '' },
+            prefix: 'new-journal'
+          }) %>
+          <button type="submit" class="btn btn--primary">Add journal entry</button>
+        </form>
+      </details>
+      <% if (entries.length > 1) { %>
+        <%- include('partials/reorder-toolbar', { group: 'journal', label: 'journal entries' }) %>
+      <% } %>
+    <% } %>
+
+    <div class="journal-list" data-reorder-group="journal" data-reorder-url="/journal/reorder">
+      <% entries.forEach((entry) => { %>
+        <article class="card journal-entry" data-reorder-item data-reorder-id="<%= entry.id %>">
+          <% if (canEdit) { %>
+            <%- include('partials/reorder-controls', {
+              label: `journal entry ${entry.title}`
+            }) %>
+          <% } %>
+          <p class="tag"><%= entry.entry_date %></p>
+          <h2 class="card__title"><%= entry.title %></h2>
+          <% if (entry.milestone_title) { %><p><small>Linked to <%= entry.milestone_title %></small></p><% } %>
+          <p class="preserve-lines"><%= entry.body %></p>
+          <% if (canEdit) { %>
+            <details class="item-editor">
+              <summary>Edit journal entry</summary>
+              <form action="/journal/<%= entry.id %>" method="post" class="admin-form">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                <%- include('partials/journal-fields', {
+                  entry,
+                  prefix: `journal-${entry.id}`
+                }) %>
+                <button type="submit" class="btn btn--primary">Save entry</button>
+              </form>
+              <form action="/journal/<%= entry.id %>/delete" method="post"
+                    class="admin-danger" data-confirm="Delete this journal entry?">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                <button type="submit" class="btn btn--outline">Delete entry</button>
+              </form>
+            </details>
+          <% } %>
+        </article>
+      <% }) %>
+    </div>
+    <% if (!dbError && entries.length === 0) { %>
+      <div class="empty-state">No journal entries yet.</div>
+    <% } %>
   </div>
 </main>
 <%- include('partials/footer') %>

@@ -6,6 +6,7 @@
       <h1 class="page-header__title">Events &amp; Reminders</h1>
       <p class="page-header__subtitle">Times shown in <%= timeZone %>.</p>
     </header>
+    <% if (message) { %><div class="alert alert--success"><%= message %></div><% } %>
     <% if (dbError) { %><div class="alert alert--warning"><%= dbError %></div><% } %>
     <% if (error) { %><div class="alert alert--error"><%= error %></div><% } %>
     <% if (!canEdit && !offlineSnapshot) { %>
@@ -19,11 +20,37 @@
         <p id="notificationStatus" role="status"></p>
       </section>
     <% } %>
+    <% if (!dbError && canEdit) { %>
+      <details class="card editor-panel">
+        <summary>Add an event</summary>
+        <form action="/reminders" method="post" class="admin-form">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+          <%- include('partials/event-fields', {
+            event: {
+              title: '',
+              event_input: '',
+              reminder_input: '',
+              notes: '',
+              is_completed: false
+            },
+            prefix: 'new-event'
+          }) %>
+          <button type="submit" class="btn btn--primary">Add event</button>
+        </form>
+      </details>
+      <% if (upcoming.length + past.length > 1) { %>
+        <%- include('partials/reorder-toolbar', { group: 'events', label: 'events' }) %>
+      <% } %>
+    <% } %>
     <section>
       <h2 class="section-title section-title--left">Upcoming</h2>
-      <div class="hub-grid">
+      <div class="hub-grid" data-reorder-group="events" data-reorder-url="/reminders/reorder">
         <% upcoming.forEach((event) => { %>
-          <article class="card hub-card" id="event-<%= event.id %>">
+          <article class="card hub-card" id="event-<%= event.id %>"
+                   data-reorder-item data-reorder-id="<%= event.id %>">
+            <% if (canEdit) { %>
+              <%- include('partials/reorder-controls', { label: `event ${event.title}` }) %>
+            <% } %>
             <h3 class="card__title"><%= event.title %></h3>
             <p><strong><%= formatDateTime(event.event_at, timeZone) %></strong></p>
             <% if (event.notes) { %><p><%= event.notes %></p><% } %>
@@ -34,6 +61,24 @@
                 <button class="btn btn--outline" type="submit">Dismiss browser reminder</button>
               </form>
             <% } %>
+            <% if (canEdit) { %>
+              <details class="item-editor">
+                <summary>Edit event</summary>
+                <form action="/reminders/<%= event.id %>" method="post" class="admin-form">
+                  <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                  <%- include('partials/event-fields', {
+                    event,
+                    prefix: `event-${event.id}`
+                  }) %>
+                  <button type="submit" class="btn btn--primary">Save event</button>
+                </form>
+                <form action="/reminders/<%= event.id %>/delete" method="post"
+                      class="admin-danger" data-confirm="Delete this event?">
+                  <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                  <button type="submit" class="btn btn--outline">Delete event</button>
+                </form>
+              </details>
+            <% } %>
           </article>
         <% }) %>
       </div>
@@ -41,11 +86,34 @@
     </section>
     <section>
       <h2 class="section-title section-title--left">Past</h2>
-      <div class="compact-list">
+      <div class="compact-list" data-reorder-group="events" data-reorder-url="/reminders/reorder">
         <% past.forEach((event) => { %>
-          <article class="card" id="event-<%= event.id %>">
+          <article class="card" id="event-<%= event.id %>"
+                   data-reorder-item data-reorder-id="<%= event.id %>">
+            <% if (canEdit) { %>
+              <%- include('partials/reorder-controls', { label: `event ${event.title}` }) %>
+            <% } %>
             <h3 class="card__title"><%= event.title %></h3>
             <p><%= formatDateTime(event.event_at, timeZone) %></p>
+            <% if (event.notes) { %><p><%= event.notes %></p><% } %>
+            <% if (canEdit) { %>
+              <details class="item-editor">
+                <summary>Edit event</summary>
+                <form action="/reminders/<%= event.id %>" method="post" class="admin-form">
+                  <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                  <%- include('partials/event-fields', {
+                    event,
+                    prefix: `past-event-${event.id}`
+                  }) %>
+                  <button type="submit" class="btn btn--primary">Save event</button>
+                </form>
+                <form action="/reminders/<%= event.id %>/delete" method="post"
+                      class="admin-danger" data-confirm="Delete this event?">
+                  <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                  <button type="submit" class="btn btn--outline">Delete event</button>
+                </form>
+              </details>
+            <% } %>
           </article>
         <% }) %>
       </div>

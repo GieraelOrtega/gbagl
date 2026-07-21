@@ -12,6 +12,16 @@ let pool = null;
 let dbAvailable = false;
 const TIMELINE_IMPORT_MARKER = 'timeline_import_complete';
 const RELATIONSHIP_BASICS_MARKER = 'relationship_basics_2025_12_08_v1';
+const ORDERED_CONTENT_TABLES = Object.freeze([
+  Object.freeze({ table: 'date_ideas', index: 'ideas_order' }),
+  Object.freeze({ table: 'bucket_items', index: 'bucket_order' }),
+  Object.freeze({ table: 'shared_events', index: 'events_order' }),
+  Object.freeze({ table: 'journal_entries', index: 'journal_order' }),
+]);
+
+function isConcurrentSchemaDuplicate(error, expectedCode, expectedNumber) {
+  return error?.code === expectedCode || Number(error?.errno) === expectedNumber;
+}
 
 function selectEnvValue(env, scopedKey, genericKey) {
   return env[scopedKey] !== undefined ? env[scopedKey] : env[genericKey];
@@ -43,6 +53,48 @@ function buildPoolOptions(env = process.env) {
   };
 }
 
+async function ensureContentOrderingSchema(databasePool = pool) {
+  for (const definition of ORDERED_CONTENT_TABLES) {
+    const [columnRows] = await databasePool.execute(
+      `SELECT 1 FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = ?
+         AND COLUMN_NAME = 'display_order'
+       LIMIT 1`,
+      [definition.table],
+    );
+    if (columnRows.length === 0) {
+      try {
+        await databasePool.query(
+          `ALTER TABLE ${definition.table}
+           ADD COLUMN display_order INT NOT NULL DEFAULT 0`,
+        );
+      } catch (error) {
+        if (!isConcurrentSchemaDuplicate(error, 'ER_DUP_FIELDNAME', 1060)) throw error;
+      }
+    }
+
+    const [indexRows] = await databasePool.execute(
+      `SELECT 1 FROM information_schema.STATISTICS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = ?
+         AND INDEX_NAME = ?
+       LIMIT 1`,
+      [definition.table, definition.index],
+    );
+    if (indexRows.length === 0) {
+      try {
+        await databasePool.query(
+          `ALTER TABLE ${definition.table}
+           ADD INDEX ${definition.index} (display_order, id)`,
+        );
+      } catch (error) {
+        if (!isConcurrentSchemaDuplicate(error, 'ER_DUP_KEYNAME', 1061)) throw error;
+      }
+    }
+  }
+}
+
 /**
  * initDb — call once at startup.
  * Creates the connection pool, tests connectivity, and ensures
@@ -63,8 +115,10 @@ async function initDb() {
         budget     VARCHAR(10)  NOT NULL,
         location   VARCHAR(50)  NOT NULL,
         notes      TEXT,
+        display_order INT NOT NULL DEFAULT 0,
         status     ENUM('pending', 'done', 'favorite') DEFAULT 'pending',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX ideas_order (display_order, id)
       )
     `);
     await pool.execute(`
@@ -97,12 +151,14 @@ async function initDb() {
         category        ENUM('travel', 'experience', 'food', 'home', 'growth', 'other')
                         NOT NULL DEFAULT 'other',
         target_date     DATE,
+        display_order   INT NOT NULL DEFAULT 0,
         is_favorite     BOOLEAN NOT NULL DEFAULT FALSE,
         completed_at    DATE,
         memory          TEXT,
         created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX bucket_status_target (completed_at, target_date)
+        INDEX bucket_status_target (completed_at, target_date),
+        INDEX bucket_order (display_order, id)
       ) ENGINE=InnoDB
     `);
     await pool.execute(`
@@ -123,11 +179,13 @@ async function initDb() {
         event_at            DATETIME NOT NULL,
         reminder_at         DATETIME,
         notes               TEXT,
+        display_order       INT NOT NULL DEFAULT 0,
         is_completed        BOOLEAN NOT NULL DEFAULT FALSE,
         reminder_dismissed  BOOLEAN NOT NULL DEFAULT FALSE,
         created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX events_time (event_at),
+        INDEX events_order (display_order, id),
         INDEX reminders_due (reminder_at, reminder_dismissed)
       ) ENGINE=InnoDB
     `);
@@ -170,14 +228,17 @@ async function initDb() {
         title           VARCHAR(150) NOT NULL,
         body            TEXT NOT NULL,
         entry_date      DATE NOT NULL,
+        display_order   INT NOT NULL DEFAULT 0,
         created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX journal_date (entry_date, id),
+        INDEX journal_order (display_order, id),
         INDEX journal_milestone (milestone_id),
         CONSTRAINT journal_milestone_fk FOREIGN KEY (milestone_id)
           REFERENCES timeline_milestones(id) ON DELETE SET NULL
       ) ENGINE=InnoDB
     `);
+    await ensureContentOrderingSchema(pool);
 
     await pool.execute(`
       INSERT IGNORE INTO site_settings (setting_key, setting_value)
@@ -339,6 +400,7 @@ module.exports = {
   RELATIONSHIP_BASICS_MARKER,
   TIMELINE_IMPORT_MARKER,
   buildPoolOptions,
+  ensureContentOrderingSchema,
   getPool,
   importTimelineOnce,
   initDb,

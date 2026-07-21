@@ -2,15 +2,8 @@ const express = require('express');
 const rateLimit = require('express-rate-limit');
 const fs = require('fs');
 const { getPool, isDbAvailable } = require('../db');
-const {
-  positiveId,
-  validateMilestone,
-  validateSettings,
-} = require('../lib/validation');
-const { createSettingsContentRouter } = require('./settingsContent');
+const { validateSettings } = require('../lib/validation');
 const { createExportRouter } = require('./exports');
-
-const VALID_STATUSES = ['pending', 'done', 'favorite'];
 
 function redirectMessage(res, type, message) {
   const params = new URLSearchParams({ [type]: message });
@@ -71,30 +64,18 @@ function createSettingsRouter({
     accountAuth.requireAdmin,
     createExportRouter(exportService),
   );
-  router.use('/content', createSettingsContentRouter(config));
-
   router.get('/', async (req, res) => {
     let settings = {};
-    let milestones = [];
-    let ideas = [];
     let backups = [];
     let dbError = null;
     if (isDbAvailable()) {
       try {
-        const [[settingRows], [milestoneRows], [ideaRows]] = await Promise.all([
-          getPool().execute('SELECT setting_key, setting_value FROM site_settings'),
-          getPool().execute(
-            `SELECT id, display_order, milestone_date AS date, title, description,
-                    emoji, photo, link_url
-             FROM timeline_milestones ORDER BY display_order, id`,
-          ),
-          getPool().execute('SELECT * FROM date_ideas ORDER BY created_at DESC'),
-        ]);
+        const [settingRows] = await getPool().execute(
+          'SELECT setting_key, setting_value FROM site_settings',
+        );
         settings = Object.fromEntries(
           settingRows.map((row) => [row.setting_key, row.setting_value]),
         );
-        milestones = milestoneRows;
-        ideas = ideaRows;
       } catch (error) {
         console.error('Settings database load failed:', error.message);
         dbError = 'Database records could not be loaded.';
@@ -115,8 +96,6 @@ function createSettingsRouter({
       page: 'settings',
       backups,
       dbError,
-      ideas,
-      milestones,
       settings,
       message: req.query.message || null,
       error: req.query.error || null,
@@ -135,102 +114,6 @@ function createSettingsRouter({
       return redirectMessage(res, 'message', 'Site settings saved.');
     } catch (error) {
       console.error('Site settings update failed:', error.message);
-      return redirectMessage(res, 'error', error.message);
-    }
-  });
-
-  router.post('/timeline', async (req, res) => {
-    if (!isDbAvailable()) return redirectMessage(res, 'error', 'Database unavailable.');
-    try {
-      const milestone = validateMilestone(req.body);
-      await getPool().execute(
-        `INSERT INTO timeline_milestones
-          (display_order, milestone_date, title, description, emoji, photo, link_url)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [
-          milestone.displayOrder,
-          milestone.date,
-          milestone.title,
-          milestone.description,
-          milestone.emoji,
-          milestone.photo,
-          milestone.linkUrl,
-        ],
-      );
-      return redirectMessage(res, 'message', 'Milestone added.');
-    } catch (error) {
-      console.error('Milestone create failed:', error.message);
-      return redirectMessage(res, 'error', error.message);
-    }
-  });
-
-  router.post('/timeline/:id', async (req, res) => {
-    if (!isDbAvailable()) return redirectMessage(res, 'error', 'Database unavailable.');
-    try {
-      const id = positiveId(req.params.id);
-      const milestone = validateMilestone(req.body);
-      await getPool().execute(
-        `UPDATE timeline_milestones
-         SET display_order = ?, milestone_date = ?, title = ?, description = ?,
-             emoji = ?, photo = ?, link_url = ?
-         WHERE id = ?`,
-        [
-          milestone.displayOrder,
-          milestone.date,
-          milestone.title,
-          milestone.description,
-          milestone.emoji,
-          milestone.photo,
-          milestone.linkUrl,
-          id,
-        ],
-      );
-      return redirectMessage(res, 'message', 'Milestone updated.');
-    } catch (error) {
-      console.error('Milestone update failed:', error.message);
-      return redirectMessage(res, 'error', error.message);
-    }
-  });
-
-  router.post('/timeline/:id/delete', async (req, res) => {
-    if (!isDbAvailable()) return redirectMessage(res, 'error', 'Database unavailable.');
-    try {
-      await getPool().execute(
-        'DELETE FROM timeline_milestones WHERE id = ?',
-        [positiveId(req.params.id)],
-      );
-      return redirectMessage(res, 'message', 'Milestone deleted.');
-    } catch (error) {
-      console.error('Milestone delete failed:', error.message);
-      return redirectMessage(res, 'error', error.message);
-    }
-  });
-
-  router.post('/ideas/:id/status', async (req, res) => {
-    if (!isDbAvailable()) return redirectMessage(res, 'error', 'Database unavailable.');
-    try {
-      const id = positiveId(req.params.id);
-      if (!VALID_STATUSES.includes(req.body.status)) throw new Error('Invalid idea status');
-      await getPool().execute('UPDATE date_ideas SET status = ? WHERE id = ?', [
-        req.body.status,
-        id,
-      ]);
-      return redirectMessage(res, 'message', 'Date idea updated.');
-    } catch (error) {
-      console.error('Settings idea update failed:', error.message);
-      return redirectMessage(res, 'error', error.message);
-    }
-  });
-
-  router.post('/ideas/:id/delete', async (req, res) => {
-    if (!isDbAvailable()) return redirectMessage(res, 'error', 'Database unavailable.');
-    try {
-      await getPool().execute('DELETE FROM date_ideas WHERE id = ?', [
-        positiveId(req.params.id),
-      ]);
-      return redirectMessage(res, 'message', 'Date idea deleted.');
-    } catch (error) {
-      console.error('Settings idea delete failed:', error.message);
       return redirectMessage(res, 'error', error.message);
     }
   });

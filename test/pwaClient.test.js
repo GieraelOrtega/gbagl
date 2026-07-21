@@ -51,6 +51,10 @@ function createClientHarness(deleteImpl, {
   };
   const installHelp = { hidden: true, textContent: '' };
   const pwaControls = { hidden: false };
+  const privateMedia = {
+    currentSrc: '',
+    src: 'https://gba.gl/media/home-photo',
+  };
   const form = {
     addEventListener(type, listener) {
       formListeners.set(type, listener);
@@ -73,6 +77,7 @@ function createClientHarness(deleteImpl, {
       if (selector === '[data-install-app]') return [installButton];
       if (selector === '[data-install-help]') return [installHelp];
       if (selector === '[data-pwa-controls]') return [pwaControls];
+      if (selector === '[data-private-media]') return [privateMedia];
       return [];
     },
   };
@@ -205,6 +210,18 @@ test('network status is visible only while offline and never announces Online te
   assert.equal(harness.status.hidden, true);
   assert.equal(harness.statusContainer.hidden, true);
   assert.equal(harness.announcer.textContent, '');
+});
+
+test('private home media is submitted for caching after authorization', async () => {
+  const harness = createClientHarness(async () => true);
+  await new Promise((resolve) => setImmediate(resolve));
+  const authorization = harness.messages.find(
+    (message) => message.type === 'AUTHORIZE_PRIVATE_CACHE',
+  );
+  assert.deepEqual(
+    Array.from(authorization.mediaUrls),
+    ['https://gba.gl/media/home-photo'],
+  );
 });
 
 test('Install Now stays visible and gives iPhone, iPad, Mac, and Windows guidance', async (t) => {
