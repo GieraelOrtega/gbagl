@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const archiver = require('archiver');
+const { ZipArchive } = require('archiver');
 const { getPool, isDbAvailable } = require('../db');
 const {
   MAX_BACKUP_INTERVAL_HOURS,
@@ -27,7 +27,7 @@ const TABLES = [
   'album_photos',
   'journal_entries',
 ];
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 function backupFilename(date = new Date(), suffix = crypto.randomBytes(6).toString('hex')) {
   return `gbagl-backup-${date.toISOString().replace(/:/g, '-')}-${suffix}.zip`;
@@ -124,7 +124,7 @@ function createBackupService(config, dependencies = {}) {
       }
       await new Promise((resolve, reject) => {
         const output = fs.createWriteStream(temporaryPath, { flags: 'wx' });
-        const archive = archiver('zip', { zlib: { level: 9 } });
+        const archive = new ZipArchive({ zlib: { level: 9 } });
         output.on('close', resolve);
         output.on('error', reject);
         archive.on('error', reject);

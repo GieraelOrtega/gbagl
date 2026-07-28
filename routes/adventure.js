@@ -17,7 +17,9 @@ const {
   publicOrderError,
   reorderCollection,
 } = require('../lib/contentOrder');
+const { formatDateTime } = require('../lib/presentation');
 const { positiveId, text } = require('../lib/validation');
+const { loadEvents } = require('./reminders');
 
 // ── Rate limiting ──────────────────────────────────────────
 // Prevents spamming the DB-backed endpoints.
@@ -98,31 +100,41 @@ function validateIdea(body) {
 // ── GET /adventure ─────────────────────────────────────────
 router.get('/', readLimiter, async (req, res) => {
   let ideas    = [];
+  let upcoming = [];
+  let past = [];
+  let timeZone = 'UTC';
   let dbError  = null;
 
   if (isDbAvailable()) {
     try {
-      const [rows] = await getPool().execute(
-        `SELECT *, DATE_FORMAT(created_at, '%b %e, %Y') AS created_at_display
-        FROM date_ideas ORDER BY display_order, created_at DESC, id DESC`,
-      );
+      const [[rows], events] = await Promise.all([
+        getPool().execute(
+          `SELECT *, DATE_FORMAT(created_at, '%b %e, %Y') AS created_at_display
+           FROM date_ideas ORDER BY display_order, created_at DESC, id DESC`,
+        ),
+        loadEvents(getPool()),
+      ]);
       ideas = rows;
+      ({ upcoming, past, timeZone } = events);
     } catch (err) {
-      console.error('Error fetching ideas:', err.message);
-      dbError = 'Could not load saved ideas right now. Try again in a moment! 🌸';
+      console.error('Adventure page load failed:', err.message);
+      dbError = 'Adventure ideas and events could not be loaded right now.';
     }
   } else {
-    dbError =
-      "The adventure planner is currently offline — the database isn't connected yet. " +
-      'Check your .env settings and restart the server. 💭';
+    dbError = 'Adventure ideas and events are temporarily unavailable.';
   }
 
+  if (!dbError) res.allowPrivateSnapshot?.();
   res.render('adventure', {
-    title:          'Adventure Planner — GBAGL',
+    title:          'Adventure & Events — GBAGL',
     page:           'adventure',
     ideas,
+    upcoming,
+    past,
+    timeZone,
     suggestedIdeas,
     dbError,
+    formatDateTime,
     message:        req.query.message || null,
     error:          req.query.error   || null,
     validVibes:     VALID_VIBES,

@@ -1,6 +1,6 @@
 # GBAGL — Gunna Be a Great Life
 
-GBAGL is a private, installable relationship site built with Node.js, Express, EJS, and MySQL. It includes a read-only passcode viewer, named member/administrator accounts, privacy-aware offline viewing, a shared bucket list, anniversary dashboard, events and browser reminders, protected photo albums, a timeline-linked journal, a date-idea planner, keepsake exports, rotating backups, and device-local light/dark appearance settings.
+GBAGL is a private, installable relationship site built with Node.js, Express, EJS, and MySQL. Its five content destinations are Home, Timeline, Bucket List, Adventure, and Journal. It includes a read-only passcode viewer, named member/administrator accounts, privacy-aware offline viewing, shared events, protected Journal photos, keepsake exports, rotating backups, and device-local light/dark appearance settings.
 
 ## Local development
 
@@ -79,39 +79,39 @@ The initial placeholder settings are Gierael, Kim, and the December 8, 2025 anni
 
 The timeline reads ordered database milestones and falls back to `data/timeline.js` if MySQL is unavailable. Journal and other Layer 2 pages report database outages explicitly instead of fabricating data. Signed-in members add, edit, delete, and reorder content directly on its corresponding page; timeline edit mode exposes a granular form for every milestone. Settings retains appearance, account, and administrator controls only. SQL writes are parameterized and inputs are validated server-side.
 
-Adventure ideas, milestones, Bucket List items, events, albums, photos, and journal entries all have durable `display_order` values. Reorder requests require a member session and CSRF token, validate the complete current ID set, and commit the new sequence in one transaction. Touch drag handles and accessible Up/Down controls use the same endpoint.
+Adventure ideas, milestones, Bucket List items, events, Journal moments, and each moment's photos all have durable `display_order` values. Reorder requests require a member session and CSRF token, validate the complete current ID set, and commit the new sequence in one transaction. Touch drag handles and accessible Up/Down controls use the same endpoint.
 
 The anniversary date may be left unset; the home page does not invent one. Leap-day anniversaries use February 28 in non-leap years. Event times are entered in the configured IANA timezone and stored as UTC.
 
-## Albums and reminders
+Existing albums are migrated idempotently into Journal moments on startup. Their protected media rows remain intact and are associated with the new moments, while a hidden system album owns photos uploaded directly to Journal. Legacy album links redirect to the corresponding Journal destination, and the legacy authenticated photo-content URL remains available so existing private media references do not break.
 
-New album and home-photo uploads are written under `UPLOAD_DIR` (default `runtime/uploads`) and are never exposed by static middleware. Signed-in members can upload only JPEG, PNG, or WebP; the server enforces `UPLOAD_MAX_BYTES`, checks file signatures, assigns random storage names, and cleans rejected files. Album views and the home hero retrieve media through authenticated routes with private no-store and `nosniff` headers.
+## Journal photos and Adventure events
+
+New Journal and home-photo uploads are written under `UPLOAD_DIR` (default `runtime/uploads`) and are never exposed by static middleware. Signed-in members can upload JPEG, PNG, WebP, HEIC, or HEIF. HEIC/HEIF files are dimension-checked and converted to JPEG before storage. The server enforces `UPLOAD_MAX_BYTES`, validates signatures after upload, assigns random storage names, and cleans rejected or rolled-back files. Journal and home-hero media use authenticated responses with private no-store and `nosniff` headers.
 
 Deployment-local images already under `public/images` can be linked by an explicit `/images/<basename>` reference. The application does not enumerate that directory. Keep private deployment images out of GitHub.
 
-Browser reminder permission is requested only from the **Enable browser reminders** button. Alerts are checked while GBAGL remains open; there is no background push delivery. Each event also has an ICS download for a device calendar. The authenticated, no-store JSON feed exposes only due reminder IDs, titles, times, and site URLs.
-
-When a service worker registration is available, due alerts use service-worker notifications so selecting one can focus or open its same-origin event page. GBAGL still checks reminders only while an app page is open. It does not use push messaging and cannot promise background delivery after every page is closed. Reminder times continue to use the configured IANA timezone.
+Events are created, edited, reordered, and reviewed inside Adventure. Each event has an ICS download for a device calendar; an optional calendar-alert time becomes an ICS alarm. Times continue to use the configured IANA timezone. GBAGL does not request browser-notification permission or expose a reminder feed.
 
 ## Installable app and offline privacy
 
-**Install Now** appears only at the bottom of the lock screen when GBAGL is not already running as an installed app. Chromium browsers use their native install prompt. iPhone/iPad, Mac, Windows, and other browsers receive platform-specific Add to Home Screen/Add to Dock/install-menu guidance when no native prompt is available. Installation uses the checked-in GBAGL manifest, Apple touch icon, and original maskable icon artwork; there are no third-party runtime scripts, styles, or fonts.
+GBAGL exposes a checked-in web-app manifest, GK Apple touch icon, and maskable icons for browser-native installation. The lock screen intentionally has no custom installation control or guidance; installation remains available through supported browser menus. There are no third-party runtime scripts, styles, or fonts.
 
 The versioned service worker keeps two separate caches:
 
 - The public shell contains only the lock/offline stylesheet, scripts, manifest, and icons. It contains no relationship data.
-- The private cache accepts only server-opted-in, read-only snapshots of `/`, `/timeline`, `/bucket`, `/reminders`, `/albums`, `/albums/:id`, and `/journal`, plus successfully authorized album and home-photo responses. Live HTML with forms or CSRF tokens is never stored.
+- The private cache accepts only server-opted-in, read-only snapshots of `/`, `/timeline`, `/bucket`, `/adventure`, and `/journal`, plus successfully authorized Journal and home-photo responses. Live HTML with forms or CSRF tokens is never stored.
 
-Settings pages, backup and keepsake downloads, reminder JSON, calendar downloads, writes, redirects, cross-origin resources, authorization failures, and arbitrary paths are never cached. Previously viewed private pages can be read offline, but all forms are absent from offline snapshots and live mutation controls disable when the browser goes offline.
+Settings pages, backup and keepsake downloads, calendar downloads, writes, redirects, cross-origin resources, authorization failures, and arbitrary paths are never cached. Previously viewed private pages can be read offline, but all forms are absent from offline snapshots and live mutation controls disable when the browser goes offline.
 
-Returning to the locked state clears private Cache Storage and browser-reminder dedupe state. An authorization loss also purges the private cache. Offline copies otherwise remain on that browser/device until site-data clearing. This is a privacy deterrent, not encrypted storage; anyone with access to that browser profile may be able to read cached copies.
+Returning to the locked state clears private Cache Storage and legacy reminder state. An authorization loss also purges the private cache. Offline copies otherwise remain on that browser/device until site-data clearing. This is a privacy deterrent, not encrypted storage; anyone with access to that browser profile may be able to read cached copies.
 
 ## Keepsake exports
 
 The Gierael-only `/settings/exports` page requires both the site passcode and the administrator account. Kim receives `403` for this area. Export downloads are rate-limited, `no-store`, and fail with an explicit `503` while MySQL is unavailable.
 
-- PDF: partner names, anniversary, timeline, journal, completed bucket memories, shared events, album metadata/captions, page numbers, and safely readable JPEG/PNG photos. Unsupported WebP and other timeline formats retain a caption/reference and remain available in ZIP.
-- ZIP: a self-contained printable `keepsake.html`, deterministic `data.json`, `manifest.json`, and safely resolved album/timeline media under generated archive paths.
+- PDF: partner names, anniversary, timeline, Journal moments and photos, completed bucket memories, shared events, page numbers, and safely readable JPEG/PNG photos. Unsupported WebP and other timeline formats retain a caption/reference and remain available in ZIP.
+- ZIP: a self-contained printable `keepsake.html`, deterministic `data.json`, `manifest.json`, and safely resolved Journal/timeline media under generated archive paths.
 
 Each export reads its records in one repeatable-read transaction and holds the existing media coordinator while files are collected. Missing or invalid media is reported without crashing or exposing server paths. Exports never contain database credentials, cookies, authentication secrets, backup archives, temp files, or deployment paths.
 
@@ -131,7 +131,7 @@ BACKUP_RETENTION=7
 BACKUP_INTERVAL_HOURS=24
 BACKUP_MEDIA_PATHS=public/images,runtime/uploads
 UPLOAD_DIR=runtime/uploads
-UPLOAD_MAX_BYTES=8388608
+UPLOAD_MAX_BYTES=20971520
 ```
 
 The default backup directory is outside `public/` and ignored by Git. Keep any custom `BACKUP_DIR` outside web-accessible static paths and include it in host-level storage backups. A custom `UPLOAD_DIR` is automatically added to the backup media roots when it is not already covered. Seven archives are retained by default. Gierael can list, download, and manually trigger backups from `/settings`; filenames are allowlisted to prevent path traversal.
@@ -145,15 +145,12 @@ Backups use one repeatable-read MySQL snapshot for all exported tables, preserve
 | Route | Access | Purpose |
 |---|---|---|
 | `/` | Viewer | Home |
-| `/adventure` | Viewer read; member write | Date-idea planner |
 | `/timeline` | Viewer read; member write | Ordered relationship timeline and granular milestone editing |
 | `/bucket` | Viewer read; member write | Shared bucket list, votes, completion, and memories |
-| `/reminders` | Viewer read; member write | Upcoming/past events, browser reminders, and ICS files |
-| `/reminders/feed.json` | Viewer | Minimal no-store due-reminder feed |
-| `/albums` | Viewer read; member write | Ordered protected albums and photos |
-| `/albums/photos/:id/content` | Viewer | ID-based private photo response |
+| `/adventure` | Viewer read; member write | Date ideas, status legend, and upcoming/past events |
 | `/media/home-photo` | Viewer | Protected home hero photo |
-| `/journal` | Viewer read; member write | Ordered shared journal |
+| `/journal` | Viewer read; member write | Ordered moments, notes, and protected photos |
+| `/albums/photos/:id/content` | Viewer | Legacy-compatible private Journal photo response |
 | `/settings/login` | Viewer | Gierael/Kim account sign-in |
 | `/settings` | Member | Appearance, account details, and links to in-page content editors |
 | `/settings/exports` | Gierael only | Sensitive PDF and portable ZIP keepsake downloads |
@@ -173,4 +170,4 @@ Do not commit `.env`, runtime uploads, backup archives, database exports, or pri
 npm test
 ```
 
-The test suite uses Node's built-in test runner and covers configuration, viewer/member/administrator authorization, signed cookies, CSRF/path validation, countdown/leap-day behavior, upload magic/path validation and cleanup, vote toggling, ICS formatting, cross-platform PWA installation guidance, cache policy and lock clearing, export authorization and transaction cleanup, ZIP safety/content, PDF output, and key lock/settings/feature HTTP behavior.
+The test suite uses Node's built-in test runner and covers configuration, viewer/member/administrator authorization, signed cookies, CSRF/path validation, countdown/leap-day behavior, album migration, JPEG/PNG/WebP/HEIC upload validation and cleanup, vote toggling, ICS formatting, cache policy and lock clearing, export authorization and transaction cleanup, ZIP safety/content, PDF output, and key lock/settings/feature HTTP behavior.

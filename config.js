@@ -196,7 +196,7 @@ function loadConfig(env = process.env) {
   assertBackupPathsSeparated(backupDir, backupMediaPaths);
   const uploadMaxBytes = positiveInteger(
     env.UPLOAD_MAX_BYTES,
-    8 * 1024 * 1024,
+    20 * 1024 * 1024,
     'UPLOAD_MAX_BYTES',
   );
   if (uploadMaxBytes > MAX_UPLOAD_BYTES) {

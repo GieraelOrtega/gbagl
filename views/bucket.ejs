@@ -9,9 +9,6 @@
     <% if (message) { %><div class="alert alert--success"><%= message %></div><% } %>
     <% if (error) { %><div class="alert alert--error"><%= error %></div><% } %>
     <% if (dbError) { %><div class="alert alert--warning"><%= dbError %></div><% } %>
-    <% if (!canEdit && !offlineSnapshot) { %>
-      <div class="read-only-note">View-only mode: sign in from Settings to vote or update the Bucket List.</div>
-    <% } %>
     <% if (!dbError && canEdit) { %>
       <details class="card editor-panel">
         <summary>Add a Bucket List item</summary>

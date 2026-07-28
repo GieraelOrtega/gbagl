@@ -5,9 +5,9 @@
   <div class="container">
 
     <header class="page-header">
-      <h1 class="page-header__title">Adventure Planner 🗺️</h1>
+      <h1 class="page-header__title">Adventure &amp; Events 🗺️</h1>
       <p class="page-header__subtitle">
-        Got a date idea? Save it here and we'll never be stuck wondering what to do. 💕
+        Save date ideas, choose what comes next, and keep shared plans in one place. 💕
       </p>
     </header>
 
@@ -21,10 +21,6 @@
     <% if (dbError) { %>
       <div class="alert alert--warning">⚠️ <%= dbError %></div>
     <% } %>
-    <% if (!canEdit && !offlineSnapshot) { %>
-      <div class="read-only-note">View-only mode: sign in from Settings to add or update adventure ideas.</div>
-    <% } %>
-
     <% if (!dbError && canEdit) { %>
       <details class="card editor-panel form-card">
         <summary>Add an adventure idea</summary>
@@ -51,6 +47,14 @@
           <%- include('partials/reorder-toolbar', { group: 'adventures', label: 'ideas' }) %>
         <% } %>
       </div>
+      <aside class="status-legend" aria-labelledby="idea-status-legend-title">
+        <h3 id="idea-status-legend-title">Idea status guide</h3>
+        <ul class="status-legend__list">
+          <li><span aria-hidden="true">❤️</span> <strong>Favourite</strong> — keep it at the top of mind</li>
+          <li><span aria-hidden="true">✅</span> <strong>Done</strong> — mark an adventure complete</li>
+          <li><span aria-hidden="true">💭</span> <strong>Idea</strong> — return it to the idea list</li>
+        </ul>
+      </aside>
       <div class="ideas-grid" data-reorder-group="adventures" data-reorder-url="/adventure/reorder">
         <% ideas.forEach(idea => { %>
         <article class="idea-card idea-card--<%= idea.status %>"
@@ -85,20 +89,22 @@
           </div>
 
           <% if (canEdit) { %><div class="idea-card__actions">
-            <!-- Status toggles: each button submits its own value via name="status" -->
             <form action="/adventure/<%= idea.id %>/status" method="POST" class="status-form">
               <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
               <% if (idea.status !== 'favorite') { %>
                 <button type="submit" name="status" value="favorite"
-                        class="btn-icon" title="Mark as Favourite">❤️</button>
+                        class="btn-icon" title="Mark as Favourite"
+                        aria-label="Mark this idea as Favourite">❤️</button>
               <% } %>
               <% if (idea.status !== 'done') { %>
                 <button type="submit" name="status" value="done"
-                        class="btn-icon" title="Mark as Done">✅</button>
+                        class="btn-icon" title="Mark as Done"
+                        aria-label="Mark this idea as Done">✅</button>
               <% } %>
               <% if (idea.status !== 'pending') { %>
                 <button type="submit" name="status" value="pending"
-                        class="btn-icon" title="Reset to Idea">💭</button>
+                        class="btn-icon" title="Return to Idea"
+                        aria-label="Return this adventure to the idea list">💭</button>
               <% } %>
             </form>
           </div><% } %>
@@ -132,6 +138,10 @@
     <% } %>
     <% if (!dbError && ideas.length === 0) { %>
       <div class="empty-state">No saved ideas yet. Gierael or Kim can add the first one here.</div>
+    <% } %>
+
+    <% if (!dbError) { %>
+      <%- include('partials/events-section') %>
     <% } %>
 
     <!-- ── Inspiration ──────────────────────────────────────── -->

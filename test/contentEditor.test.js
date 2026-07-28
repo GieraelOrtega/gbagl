@@ -11,12 +11,14 @@ function read(relativePath) {
 test('content forms live on their corresponding pages instead of Settings', () => {
   const expectations = new Map([
     ['views/adventure.ejs', ['/adventure', '/adventure/<%= idea.id %>']],
+    ['views/partials/events-section.ejs', ['/reminders', '/reminders/<%= event.id %>']],
     ['views/timeline.ejs', ['/timeline', '/timeline/<%= milestone.id %>']],
     ['views/bucket.ejs', ['/bucket', '/bucket/<%= item.id %>']],
-    ['views/reminders.ejs', ['/reminders', '/reminders/<%= event.id %>']],
-    ['views/albums.ejs', ['/albums', '/albums/<%= album.id %>']],
-    ['views/album.ejs', ['/albums/photos/upload', '/albums/photos/<%= photo.id %>']],
-    ['views/journal.ejs', ['/journal', '/journal/<%= entry.id %>']],
+    ['views/journal.ejs', [
+      '/journal',
+      '/journal/<%= entry.id %>',
+      '/journal/<%= entry.id %>/photos',
+    ]],
   ]);
   for (const [file, actions] of expectations) {
     const source = read(file);
@@ -32,12 +34,11 @@ test('content forms live on their corresponding pages instead of Settings', () =
 test('every ordered content surface exposes protected reorder metadata', () => {
   const views = [
     ['views/adventure.ejs', '/adventure/reorder'],
+    ['views/partials/events-section.ejs', '/reminders/reorder'],
     ['views/timeline.ejs', '/timeline/reorder'],
     ['views/bucket.ejs', '/bucket/reorder'],
-    ['views/reminders.ejs', '/reminders/reorder'],
-    ['views/albums.ejs', '/albums/reorder'],
-    ['views/album.ejs', '/photos/reorder'],
     ['views/journal.ejs', '/journal/reorder'],
+    ['views/journal.ejs', '/photos/reorder'],
   ];
   views.forEach(([file, endpoint]) => {
     const source = read(file);
@@ -59,12 +60,6 @@ test('every ordered content surface exposes protected reorder metadata', () => {
   assert.match(client, /\.then\(\(saved\) =>/);
   assert.doesNotMatch(client, /control\.disabled = busy/);
   assert.doesNotMatch(client, /up\.disabled = index/);
-
-  const albums = read('views/albums.ejs');
-  assert.ok(
-    albums.indexOf('if (album.cover_photo_id)') < albums.indexOf("include('partials/reorder-controls'"),
-    'album covers should render before touch reorder controls',
-  );
 });
 
 test('timeline edit mode exposes granular forms for every milestone', () => {
@@ -102,6 +97,14 @@ test('editable page templates render with representative content', async () => {
       validVibes: ['cozy'],
       validBudgets: ['$'],
       validLocations: ['at home'],
+      upcoming: [{
+        id: 2, title: 'Dinner', event_at: '2026-08-01T01:00:00Z',
+        reminder_at: null, event_input: '2026-07-31T18:00',
+        reminder_input: '', notes: 'Reservation', is_completed: 0,
+      }],
+      past: [],
+      timeZone: 'UTC',
+      formatDateTime: (value) => value,
     }],
     ['timeline.ejs', {
       ...base,
@@ -125,37 +128,6 @@ test('editable page templates render with representative content', async () => {
       }],
       labels: { partner_one: 'Gierael', partner_two: 'Kim' },
     }],
-    ['reminders.ejs', {
-      ...base,
-      page: 'reminders',
-      upcoming: [{
-        id: 1, title: 'Dinner', event_at: '2026-08-01T01:00:00Z',
-        reminder_at: null, reminder_dismissed: 0, event_input: '2026-07-31T18:00',
-        reminder_input: '', notes: 'Reservation', is_completed: 0,
-      }],
-      past: [],
-      timeZone: 'UTC',
-      formatDateTime: (value) => value,
-    }],
-    ['albums.ejs', {
-      ...base,
-      page: 'albums',
-      albums: [{
-        id: 1, title: 'Trips', description: 'Together', album_date: null,
-        photo_count: 0, cover_photo_id: null,
-      }],
-    }],
-    ['album.ejs', {
-      ...base,
-      page: 'albums',
-      album: { id: 1, title: 'Trips', description: 'Together', album_date: null },
-      albums: [{ id: 1, title: 'Trips' }],
-      milestones: [{ id: 1, title: 'A milestone' }],
-      photos: [{
-        id: 1, album_id: 1, milestone_id: 1, milestone_title: 'A milestone',
-        caption: 'Us', photo_date: null,
-      }],
-    }],
     ['journal.ejs', {
       ...base,
       page: 'journal',
@@ -163,6 +135,9 @@ test('editable page templates render with representative content', async () => {
       entries: [{
         id: 1, milestone_id: 1, milestone_title: 'A milestone',
         title: 'Today', body: 'A reflection', entry_date: '2026-07-20',
+        photos: [{
+          id: 3, journal_entry_id: 1, caption: 'Us', photo_date: '2026-07-20',
+        }],
       }],
     }],
   ]);

@@ -21,9 +21,6 @@
         <a href="/adventure" class="btn btn--primary">Plan an Adventure</a>
         <a href="/timeline" class="btn btn--outline">See Our Story</a>
       </div>
-      <% if (!currentUser && !offlineSnapshot) { %>
-        <p class="read-only-note">You are viewing GBAGL in read-only mode. Sign in from Settings to make changes.</p>
-      <% } %>
     </div>
 
     <div class="hero-photo-wrap">
@@ -39,9 +36,10 @@
                 class="admin-form">
             <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
             <div class="form-group">
-              <label class="form-label" for="home-photo">JPEG, PNG, or WebP</label>
+              <label class="form-label" for="home-photo">JPEG, PNG, WebP, HEIC, or HEIF</label>
               <input class="form-input" id="home-photo" name="photo" type="file"
-                     accept="image/jpeg,image/png,image/webp" required />
+                     accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif"
+                     required />
             </div>
             <button type="submit" class="btn btn--primary">Update home photo</button>
           </form>
@@ -90,7 +88,7 @@
           <% } else if (!dbError) { %>
             <p>No upcoming events yet.</p>
           <% } %>
-          <a href="/reminders">View events</a>
+          <a href="/adventure#events">View events</a>
         </article>
       </div>
     </div>
@@ -101,12 +99,6 @@
       <p class="section-eyebrow">Everything in one private place</p>
       <h2 class="section-title">What's Inside</h2>
       <div class="features__grid">
-        <article class="feature-card">
-          <div class="feature-card__icon" aria-hidden="true">🗺️</div>
-          <h3 class="feature-card__title">Adventure Planner</h3>
-          <p class="feature-card__text">Save date ideas by mood, budget, and setting, then mark the favorites and memories worth repeating.</p>
-          <a href="/adventure" class="btn btn--outline">Plan Together</a>
-        </article>
         <article class="feature-card">
           <div class="feature-card__icon" aria-hidden="true">📖</div>
           <h3 class="feature-card__title">Our Timeline</h3>
@@ -120,21 +112,15 @@
           <a href="/bucket" class="btn btn--outline">View Our Dreams</a>
         </article>
         <article class="feature-card">
-          <div class="feature-card__icon" aria-hidden="true">📅</div>
-          <h3 class="feature-card__title">Events</h3>
-          <p class="feature-card__text">Keep plans and reminders organized, with calendar downloads for every device.</p>
-          <a href="/reminders" class="btn btn--outline">See What's Next</a>
-        </article>
-        <article class="feature-card">
-          <div class="feature-card__icon" aria-hidden="true">📷</div>
-          <h3 class="feature-card__title">Photo Albums</h3>
-          <p class="feature-card__text">Collect protected photos and captions without exposing private media through public links.</p>
-          <a href="/albums" class="btn btn--outline">Open Albums</a>
+          <div class="feature-card__icon" aria-hidden="true">🗺️</div>
+          <h3 class="feature-card__title">Adventure &amp; Events</h3>
+          <p class="feature-card__text">Save date ideas, choose favorites, and keep upcoming plans organized with calendar downloads.</p>
+          <a href="/adventure" class="btn btn--outline">Plan Together</a>
         </article>
         <article class="feature-card">
           <div class="feature-card__icon" aria-hidden="true">💌</div>
-          <h3 class="feature-card__title">Shared Journal</h3>
-          <p class="feature-card__text">Write reflections and connect them directly to the timeline moments they belong beside.</p>
+          <h3 class="feature-card__title">Journal &amp; Photos</h3>
+          <p class="feature-card__text">Capture reflections and photos together, then connect each moment to the timeline.</p>
           <a href="/journal" class="btn btn--outline">Read Our Journal</a>
         </article>
       </div>

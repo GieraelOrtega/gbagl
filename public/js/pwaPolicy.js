@@ -8,25 +8,24 @@
   const MEDIA_OPT_IN = 'media-v1';
   const PUBLIC_SHELL_PATHS = Object.freeze([
     '/offline.html',
-    '/css/style.css?v=gk-ux-1',
+    '/css/style.css?v=gk-consolidation-1',
     '/js/lock.js',
-    '/js/pwa.js',
-    '/js/pwaPolicy.js?v=gk-ux-1',
+    '/js/pwa.js?v=gk-consolidation-1',
+    '/js/pwaPolicy.js?v=gk-consolidation-1',
     '/js/theme.js',
-    '/manifest.webmanifest?v=gk-ux-1',
-    '/icons/icon-192.png?v=gk-ux-1',
-    '/icons/icon-512.png?v=gk-ux-1',
+    '/manifest.webmanifest?v=gk-consolidation-1',
+    '/icons/icon-192.png?v=gk-consolidation-1',
+    '/icons/icon-512.png?v=gk-consolidation-1',
   ]);
 
   function isPrivateSnapshotPath(pathname) {
     return [
       '/',
+      '/adventure',
       '/timeline',
       '/bucket',
-      '/reminders',
-      '/albums',
       '/journal',
-    ].includes(pathname) || /^\/albums\/[1-9]\d*$/.test(pathname);
+    ].includes(pathname);
   }
 
   function isPrivateMediaPath(pathname) {
@@ -51,7 +50,11 @@
 
   function notificationNavigation(value, origin) {
     const url = sameOriginUrl(value, origin);
-    if (!url || !isPrivateSnapshotPath(url.pathname)) return null;
+    if (!url) return null;
+    if (url.pathname === '/reminders') {
+      return `/adventure${url.search}${url.hash || '#events'}`;
+    }
+    if (!isPrivateSnapshotPath(url.pathname)) return null;
     return `${url.pathname}${url.search}${url.hash}`;
   }
 

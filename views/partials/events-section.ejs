@@ -1,0 +1,112 @@
+<section class="events-section" id="events" aria-labelledby="events-title">
+  <div class="section-heading">
+    <div>
+      <h2 class="section-title section-title--left" id="events-title">Our Events 📅</h2>
+      <p class="events-section__meta">Times shown in <%= timeZone %>.</p>
+    </div>
+    <% if (canEdit && upcoming.length + past.length > 1) { %>
+      <%- include('reorder-toolbar', { group: 'events', label: 'events' }) %>
+    <% } %>
+  </div>
+
+  <% if (canEdit) { %>
+    <details class="card editor-panel">
+      <summary>Add an event</summary>
+      <form action="/reminders" method="post" class="admin-form">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+        <%- include('event-fields', {
+          event: {
+            title: '',
+            event_input: '',
+            reminder_input: '',
+            notes: '',
+            is_completed: false
+          },
+          prefix: 'new-event'
+        }) %>
+        <button type="submit" class="btn btn--primary">Add event</button>
+      </form>
+    </details>
+  <% } %>
+
+  <section aria-labelledby="upcoming-events-title">
+    <h3 class="section-title section-title--left events-section__subheading"
+        id="upcoming-events-title">Upcoming</h3>
+    <div class="hub-grid" data-reorder-group="events" data-reorder-url="/reminders/reorder">
+      <% upcoming.forEach((event) => { %>
+        <article class="card hub-card" id="event-<%= event.id %>"
+                 data-reorder-item data-reorder-id="<%= event.id %>">
+          <% if (canEdit) { %>
+            <%- include('reorder-controls', { label: `event ${event.title}` }) %>
+          <% } %>
+          <h4 class="card__title"><%= event.title %></h4>
+          <p><strong><%= formatDateTime(event.event_at, timeZone) %></strong></p>
+          <% if (event.notes) { %><p><%= event.notes %></p><% } %>
+          <% if (!offlineSnapshot) { %>
+            <a class="btn btn--outline" href="/reminders/<%= event.id %>.ics">Add to calendar</a>
+          <% } %>
+          <% if (canEdit) { %>
+            <details class="item-editor">
+              <summary>Edit event</summary>
+              <form action="/reminders/<%= event.id %>" method="post" class="admin-form">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                <%- include('event-fields', {
+                  event,
+                  prefix: `event-${event.id}`
+                }) %>
+                <button type="submit" class="btn btn--primary">Save event</button>
+              </form>
+              <form action="/reminders/<%= event.id %>/delete" method="post"
+                    class="admin-danger" data-confirm="Delete this event?">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                <button type="submit" class="btn btn--outline">Delete event</button>
+              </form>
+            </details>
+          <% } %>
+        </article>
+      <% }) %>
+    </div>
+    <% if (upcoming.length === 0) { %>
+      <div class="empty-state">No upcoming events.</div>
+    <% } %>
+  </section>
+
+  <section aria-labelledby="past-events-title">
+    <h3 class="section-title section-title--left events-section__subheading"
+        id="past-events-title">Past</h3>
+    <div class="compact-list" data-reorder-group="events" data-reorder-url="/reminders/reorder">
+      <% past.forEach((event) => { %>
+        <article class="card" id="event-<%= event.id %>"
+                 data-reorder-item data-reorder-id="<%= event.id %>">
+          <% if (canEdit) { %>
+            <%- include('reorder-controls', { label: `event ${event.title}` }) %>
+          <% } %>
+          <h4 class="card__title"><%= event.title %></h4>
+          <p><%= formatDateTime(event.event_at, timeZone) %></p>
+          <% if (event.notes) { %><p><%= event.notes %></p><% } %>
+          <% if (canEdit) { %>
+            <details class="item-editor">
+              <summary>Edit event</summary>
+              <form action="/reminders/<%= event.id %>" method="post" class="admin-form">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                <%- include('event-fields', {
+                  event,
+                  prefix: `past-event-${event.id}`
+                }) %>
+                <button type="submit" class="btn btn--primary">Save event</button>
+              </form>
+              <form action="/reminders/<%= event.id %>/delete" method="post"
+                    class="admin-danger" data-confirm="Delete this event?">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                <button type="submit" class="btn btn--outline">Delete event</button>
+              </form>
+            </details>
+          <% } %>
+        </article>
+      <% }) %>
+    </div>
+    <% if (past.length === 0) { %>
+      <div class="empty-state">No past events.</div>
+    <% } %>
+  </section>
+</section>

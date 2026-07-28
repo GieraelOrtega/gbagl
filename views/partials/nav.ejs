@@ -10,10 +10,6 @@
         <a href="/" class="nav__link<%= page === 'home' ? ' nav__link--active' : '' %>"
            <% if (page === 'home') { %>aria-current="page"<% } %>>Home</a>
       </li>
-      <% if (!offlineSnapshot) { %><li>
-        <a href="/adventure" class="nav__link<%= page === 'adventure' ? ' nav__link--active' : '' %>"
-           <% if (page === 'adventure') { %>aria-current="page"<% } %>>Adventure</a>
-      </li><% } %>
       <li>
         <a href="/timeline" class="nav__link<%= page === 'timeline' ? ' nav__link--active' : '' %>"
            <% if (page === 'timeline') { %>aria-current="page"<% } %>>Timeline</a>
@@ -23,12 +19,8 @@
            <% if (page === 'bucket') { %>aria-current="page"<% } %>>Bucket List</a>
       </li>
       <li>
-        <a href="/reminders" class="nav__link<%= page === 'reminders' ? ' nav__link--active' : '' %>"
-           <% if (page === 'reminders') { %>aria-current="page"<% } %>>Events</a>
-      </li>
-      <li>
-        <a href="/albums" class="nav__link<%= page === 'albums' ? ' nav__link--active' : '' %>"
-           <% if (page === 'albums') { %>aria-current="page"<% } %>>Albums</a>
+        <a href="/adventure" class="nav__link<%= page === 'adventure' ? ' nav__link--active' : '' %>"
+           <% if (page === 'adventure') { %>aria-current="page"<% } %>>Adventure</a>
       </li>
       <li>
         <a href="/journal" class="nav__link<%= page === 'journal' ? ' nav__link--active' : '' %>"

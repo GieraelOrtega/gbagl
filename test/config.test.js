@@ -181,7 +181,7 @@ test('custom upload directories are automatically covered by backup media paths'
 });
 
 test('protected upload size remains strictly capped', () => {
-  assert.equal(loadConfig(LOCAL_AUTH).uploadMaxBytes, 8 * 1024 * 1024);
+  assert.equal(loadConfig(LOCAL_AUTH).uploadMaxBytes, 20 * 1024 * 1024);
   assert.throws(
     () => loadConfig({ ...LOCAL_AUTH, UPLOAD_MAX_BYTES: String(MAX_UPLOAD_BYTES + 1) }),
     /must not exceed/,

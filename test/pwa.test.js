@@ -14,11 +14,12 @@ const {
 
 test('PWA policy separates public shell, read-only snapshots, and protected media', () => {
   assert.ok(PUBLIC_SHELL_PATHS.includes('/offline.html'));
-  assert.ok(PUBLIC_SHELL_PATHS.includes('/icons/icon-512.png?v=gk-ux-1'));
+  assert.ok(PUBLIC_SHELL_PATHS.includes('/icons/icon-512.png?v=gk-consolidation-1'));
   assert.ok(PUBLIC_SHELL_PATHS.includes('/js/theme.js'));
   assert.equal(PUBLIC_SHELL_PATHS.some((item) => item.startsWith('/settings')), false);
   assert.equal(isPrivateSnapshotPath('/'), true);
-  assert.equal(isPrivateSnapshotPath('/albums/42'), true);
+  assert.equal(isPrivateSnapshotPath('/adventure'), true);
+  assert.equal(isPrivateSnapshotPath('/albums/42'), false);
   assert.equal(isPrivateSnapshotPath('/settings'), false);
   assert.equal(isPrivateSnapshotPath('/reminders/feed.json'), false);
   assert.equal(isPrivateMediaPath('/albums/photos/8/content'), true);
@@ -31,14 +32,14 @@ test('PWA policy separates public shell, read-only snapshots, and protected medi
 test('snapshot and notification destinations require an allowlisted same-origin URL', () => {
   const origin = 'https://gba.gl';
   assert.equal(
-    canonicalSnapshotUrl('https://gba.gl/albums/7?ignored=1', origin),
-    'https://gba.gl/albums/7',
+    canonicalSnapshotUrl('https://gba.gl/adventure?ignored=1', origin),
+    'https://gba.gl/adventure',
   );
-  assert.equal(canonicalSnapshotUrl('https://evil.example/albums/7', origin), null);
+  assert.equal(canonicalSnapshotUrl('https://evil.example/adventure', origin), null);
   assert.equal(canonicalSnapshotUrl('/settings', origin), null);
   assert.equal(
     notificationNavigation('/reminders?view=upcoming#event-4', origin),
-    '/reminders?view=upcoming#event-4',
+    '/adventure?view=upcoming#event-4',
   );
   assert.equal(notificationNavigation('//evil.example/reminders', origin), null);
   assert.equal(notificationNavigation('/settings', origin), null);
@@ -81,7 +82,7 @@ test('service worker implements version cleanup, auth purge, and explicit clear 
   assert.match(source, /mutationResponse/);
   assert.match(source, /url\.pathname !== '\/lock'/);
   assert.match(source, /authorizePrivateCache/);
-  assert.match(source, /const CACHE_VERSION = 'v2'/);
+  assert.match(source, /const CACHE_VERSION = 'v3'/);
   assert.match(source, /url\.pathname\}\$\{url\.search/);
   assert.doesNotMatch(source, /\/settings\/|feed\.json|backups/);
 });
@@ -96,7 +97,7 @@ test('offline shell styling cannot be mistaken for the authenticated lock respon
   assert.match(lock, /data-locked-state/);
 });
 
-test('install control appears only at the lock-screen bottom and Online text is absent', () => {
+test('lock screen has no install controls or Online text', () => {
   const nav = fs.readFileSync(
     path.join(__dirname, '..', 'views', 'partials', 'nav.ejs'),
     'utf8',
@@ -113,8 +114,7 @@ test('install control appears only at the lock-screen bottom and Online text is 
   assert.match(nav, /data-network-status-announcer/);
   assert.doesNotMatch(lock, /This little corner of the internet is private\./);
   assert.doesNotMatch(lock, />Online|data-network-status/);
-  assert.match(lock, /class="lock-install" data-pwa-controls/);
-  assert.match(lock, /data-install-app>Install Now/);
+  assert.doesNotMatch(lock, /Install Now|data-install-app|data-pwa-controls/);
   assert.match(lock, /passcode__submit visually-hidden/);
   assert.match(lock, /Five incorrect attempts pause entry for 15 minutes/);
   const styles = fs.readFileSync(
@@ -123,7 +123,7 @@ test('install control appears only at the lock-screen bottom and Online text is 
   );
   assert.match(styles, /\.lock-screen\s*\{[\s\S]*height:\s*100dvh/);
   assert.match(styles, /\.lock-screen\s*\{[\s\S]*overflow:\s*hidden/);
-  assert.match(styles, /\.lock-install\s*\{[\s\S]*position:\s*relative/);
+  assert.doesNotMatch(styles, /\.lock-install|\.passcode__install/);
   assert.match(
     styles,
     /@media \(max-height: 430px\)[\s\S]*grid-template-columns: repeat\(3, 44px\)/,
@@ -135,7 +135,9 @@ test('landing page exposes the complete feature set and corrected Bucket List la
   assert.match(index, /What's Inside/);
   assert.match(index, /Bucket List progress/);
   assert.doesNotMatch(index, /Bucket progress/);
-  assert.equal((index.match(/class="feature-card"/g) || []).length, 6);
+  assert.equal((index.match(/class="feature-card"/g) || []).length, 4);
+  assert.match(index, /Adventure &amp; Events/);
+  assert.match(index, /Journal &amp; Photos/);
   assert.match(index, /settings\.partner_one_name/);
   assert.match(index, /anniversaryDisplay/);
   assert.match(index, /src="\/media\/home-photo" data-private-media/);
