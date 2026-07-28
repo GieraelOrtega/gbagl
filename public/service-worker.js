@@ -1,4 +1,4 @@
-importScripts('/js/pwaPolicy.js?v=gk-consolidation-1');
+importScripts('/js/pwaPolicy.js?v=timeline-photo-1');
 
 const CACHE_VERSION = 'v3';
 const STATE_SCHEMA_VERSION = 2;

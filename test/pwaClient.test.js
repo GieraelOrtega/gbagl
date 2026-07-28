@@ -37,10 +37,16 @@ function createClientHarness(deleteImpl, {
   };
   const statusContainer = { hidden: true };
   const announcer = { textContent: '' };
-  const privateMedia = {
-    currentSrc: '',
-    src: 'https://gba.gl/media/home-photo',
-  };
+  const privateMedia = [
+    {
+      currentSrc: '',
+      src: 'https://gba.gl/media/home-photo',
+    },
+    {
+      currentSrc: 'https://gba.gl/timeline/photos/7/content',
+      src: 'https://gba.gl/timeline/photos/7/content',
+    },
+  ];
   const form = {
     addEventListener(type, listener) {
       formListeners.set(type, listener);
@@ -60,7 +66,7 @@ function createClientHarness(deleteImpl, {
       if (selector === '[data-network-status]') return [status];
       if (selector === '[data-network-status-container]') return [statusContainer];
       if (selector === '[data-network-status-announcer]') return [announcer];
-      if (selector === '[data-private-media]') return [privateMedia];
+      if (selector === '[data-private-media]') return privateMedia;
       return [];
     },
   };
@@ -187,7 +193,7 @@ test('network status is visible only while offline and never announces Online te
   assert.equal(harness.announcer.textContent, '');
 });
 
-test('private home media is submitted for caching after authorization', async () => {
+test('private home and Timeline media are submitted for caching after authorization', async () => {
   const harness = createClientHarness(async () => true);
   await new Promise((resolve) => setImmediate(resolve));
   const authorization = harness.messages.find(
@@ -195,7 +201,10 @@ test('private home media is submitted for caching after authorization', async ()
   );
   assert.deepEqual(
     Array.from(authorization.mediaUrls),
-    ['https://gba.gl/media/home-photo'],
+    [
+      'https://gba.gl/media/home-photo',
+      'https://gba.gl/timeline/photos/7/content',
+    ],
   );
 });
 

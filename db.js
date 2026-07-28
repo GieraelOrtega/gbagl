@@ -96,6 +96,26 @@ async function ensureContentOrderingSchema(databasePool = pool) {
   }
 }
 
+async function ensureTimelinePhotoSchema(databasePool = pool) {
+  await ensureColumn(
+    databasePool,
+    'timeline_milestones',
+    'photo_storage_type',
+    "ENUM('upload', 'existing') NULL AFTER photo",
+  );
+  await ensureColumn(
+    databasePool,
+    'timeline_milestones',
+    'photo_media_type',
+    'VARCHAR(100) NULL AFTER photo_storage_type',
+  );
+  await databasePool.execute(
+    `UPDATE timeline_milestones
+     SET photo_storage_type = 'existing'
+     WHERE photo IS NOT NULL AND photo_storage_type IS NULL`,
+  );
+}
+
 async function schemaObjectExists(databasePool, table, field, value) {
   const [rows] = await databasePool.execute(
     `SELECT 1 FROM information_schema.${field === 'COLUMN_NAME' ? 'COLUMNS' : 'STATISTICS'}
@@ -335,12 +355,15 @@ async function initDb() {
         description     TEXT NOT NULL,
         emoji           VARCHAR(32) NOT NULL,
         photo           VARCHAR(255),
+        photo_storage_type ENUM('upload', 'existing'),
+        photo_media_type VARCHAR(100),
         link_url        VARCHAR(1000),
         created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX timeline_display_order (display_order, id)
       )
     `);
+    await ensureTimelinePhotoSchema(pool);
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS bucket_items (
         id              INT AUTO_INCREMENT PRIMARY KEY,
@@ -563,8 +586,9 @@ async function importTimelineOnce(
       for (const [index, milestone] of milestones.entries()) {
         await connection.execute(
           `INSERT INTO timeline_milestones
-            (display_order, milestone_date, title, description, emoji, photo, link_url)
-           VALUES (?, ?, ?, ?, ?, ?, NULL)`,
+           (display_order, milestone_date, title, description, emoji, photo,
+            photo_storage_type, photo_media_type, link_url)
+          VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
           [
             index,
             milestone.date,
@@ -572,6 +596,7 @@ async function importTimelineOnce(
             milestone.description,
             milestone.emoji,
             milestone.photo || null,
+            milestone.photo ? 'existing' : null,
           ],
         );
       }
@@ -611,6 +636,7 @@ module.exports = {
   buildPoolOptions,
   ensureContentOrderingSchema,
   ensureJournalPhotoSchema,
+  ensureTimelinePhotoSchema,
   getPool,
   importTimelineOnce,
   initDb,

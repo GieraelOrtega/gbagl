@@ -8,14 +8,14 @@
   const MEDIA_OPT_IN = 'media-v1';
   const PUBLIC_SHELL_PATHS = Object.freeze([
     '/offline.html',
-    '/css/style.css?v=gk-consolidation-1',
+    '/css/style.css?v=timeline-photo-1',
     '/js/lock.js',
-    '/js/pwa.js?v=gk-consolidation-1',
-    '/js/pwaPolicy.js?v=gk-consolidation-1',
+    '/js/pwa.js?v=timeline-photo-1',
+    '/js/pwaPolicy.js?v=timeline-photo-1',
     '/js/theme.js',
-    '/manifest.webmanifest?v=gk-consolidation-1',
-    '/icons/icon-192.png?v=gk-consolidation-1',
-    '/icons/icon-512.png?v=gk-consolidation-1',
+    '/manifest.webmanifest?v=timeline-photo-1',
+    '/icons/icon-192.png?v=timeline-photo-1',
+    '/icons/icon-512.png?v=timeline-photo-1',
   ]);
 
   function isPrivateSnapshotPath(pathname) {
@@ -30,6 +30,7 @@
 
   function isPrivateMediaPath(pathname) {
     return pathname === '/media/home-photo'
+      || /^\/timeline\/photos\/[1-9]\d*\/content$/.test(pathname)
       || /^\/albums\/photos\/[1-9]\d*\/content$/.test(pathname);
   }
 

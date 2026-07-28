@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const {
   JOURNAL_SYSTEM_ALBUM_KEY,
   ensureJournalPhotoSchema,
+  ensureTimelinePhotoSchema,
   migrateAlbumsToJournal,
 } = require('../db');
 
@@ -169,4 +170,41 @@ test('Journal photo schema setup is idempotent for upgraded databases', async ()
 
   await ensureJournalPhotoSchema(pool);
   assert.equal(altered.length, 8);
+});
+
+test('Timeline photo schema preserves legacy paths and is idempotent', async () => {
+  const columns = new Set();
+  const altered = [];
+  let legacyUpdates = 0;
+  const pool = {
+    execute: async (sql, params = []) => {
+      if (sql.includes('information_schema.COLUMNS')) {
+        return [columns.has(`${params[0]}:${params[1]}`) ? [{}] : []];
+      }
+      if (sql.includes("SET photo_storage_type = 'existing'")) {
+        legacyUpdates += 1;
+        return [{ affectedRows: 3 }];
+      }
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+    query: async (sql) => {
+      altered.push(sql);
+      const column = sql.match(/ALTER TABLE (\w+) ADD COLUMN (\w+)/);
+      if (column) columns.add(`${column[1]}:${column[2]}`);
+      return [{}];
+    },
+  };
+
+  await ensureTimelinePhotoSchema(pool);
+  assert.deepEqual([...columns].sort(), [
+    'timeline_milestones:photo_media_type',
+    'timeline_milestones:photo_storage_type',
+  ]);
+  assert.equal(altered.length, 2);
+  assert.match(altered[0], /ENUM\('upload', 'existing'\)/);
+  assert.equal(legacyUpdates, 1);
+
+  await ensureTimelinePhotoSchema(pool);
+  assert.equal(altered.length, 2);
+  assert.equal(legacyUpdates, 2);
 });

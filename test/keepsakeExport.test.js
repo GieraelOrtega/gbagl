@@ -126,6 +126,69 @@ test('invalid media does not consume the validated aggregate byte budget', async
       storage_type: 'upload',
     };
   });
+
+  test('keepsake media resolves uploaded and deployment-local Timeline photos', async () => {
+    const uploadName = `${'a'.repeat(32)}.jpg`;
+    const uploadDir = path.join(__dirname, 'virtual-timeline-uploads');
+    const publicDir = path.join(__dirname, 'virtual-timeline-public');
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+    const webp = Buffer.from('RIFF0000WEBP', 'ascii');
+    const buffers = new Map([
+      [uploadName, jpeg],
+      ['legacy.webp', webp],
+    ]);
+    const inspectedRoots = [];
+
+    const media = await loadExportMedia(
+      { publicDir, uploadDir },
+      [],
+      [
+        {
+          id: 7,
+          photo: uploadName,
+          photo_media_type: 'image/jpeg',
+          photo_storage_type: 'upload',
+        },
+        {
+          id: 8,
+          photo: 'images/legacy.webp',
+          photo_media_type: null,
+          photo_storage_type: 'existing',
+        },
+      ],
+      {
+        boundedRegularFile: async (filePath, root) => {
+          inspectedRoots.push(root);
+          return {
+            path: filePath,
+            size: buffers.get(path.basename(filePath)).length,
+          };
+        },
+        readFile: async (filePath) => buffers.get(path.basename(filePath)),
+      },
+    );
+
+    assert.deepEqual(media.map((item) => ({
+      archivePath: item.archivePath,
+      mediaType: item.mediaType,
+      status: item.status,
+    })), [
+      {
+        archivePath: 'media/timeline/milestone-000007.jpg',
+        mediaType: 'image/jpeg',
+        status: 'included',
+      },
+      {
+        archivePath: 'media/timeline/milestone-000008.webp',
+        mediaType: 'image/webp',
+        status: 'included',
+      },
+    ]);
+    assert.deepEqual(inspectedRoots, [
+      path.resolve(uploadDir),
+      path.resolve(publicDir),
+    ]);
+  });
   const dependencies = {
     boundedRegularFile: async (filePath) => ({
       path: filePath,

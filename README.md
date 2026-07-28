@@ -1,6 +1,6 @@
 # GBAGL — Gunna Be a Great Life
 
-GBAGL is a private, installable relationship site built with Node.js, Express, EJS, and MySQL. Its five content destinations are Home, Timeline, Bucket List, Adventure, and Journal. It includes a read-only passcode viewer, named member/administrator accounts, privacy-aware offline viewing, shared events, protected Journal photos, keepsake exports, rotating backups, and device-local light/dark appearance settings.
+GBAGL is a private, installable relationship site built with Node.js, Express, EJS, and MySQL. Its five content destinations are Home, Timeline, Bucket List, Adventure, and Journal. It includes a read-only passcode viewer, named member/administrator accounts, privacy-aware offline viewing, shared events, protected Timeline and Journal photos, keepsake exports, rotating backups, and device-local light/dark appearance settings.
 
 ## Local development
 
@@ -77,7 +77,7 @@ On the first migration, startup imports the current `data/timeline.js` array if 
 
 The initial placeholder settings are Gierael, Kim, and the December 8, 2025 anniversary. A durable one-time migration upgrades only untouched placeholder/blank values and replaces only the untouched first timeline placeholder with the “Officially Us” milestone. Later customizations—including intentionally clearing the anniversary—survive restarts.
 
-The timeline reads ordered database milestones and falls back to `data/timeline.js` if MySQL is unavailable. Journal and other Layer 2 pages report database outages explicitly instead of fabricating data. Signed-in members add, edit, delete, and reorder content directly on its corresponding page; timeline edit mode exposes a granular form for every milestone. Settings retains appearance, account, and administrator controls only. SQL writes are parameterized and inputs are validated server-side.
+The timeline reads ordered database milestones and falls back to `data/timeline.js` if MySQL is unavailable. Journal and other Layer 2 pages report database outages explicitly instead of fabricating data. Signed-in members add, edit, delete, and reorder content directly on its corresponding page; Timeline edit mode exposes a responsive form for every milestone, including direct add/replace/remove photo controls with no path entry. Settings retains appearance, account, and administrator controls only. SQL writes are parameterized and inputs are validated server-side.
 
 Adventure ideas, milestones, Bucket List items, events, Journal moments, and each moment's photos all have durable `display_order` values. Reorder requests require a member session and CSRF token, validate the complete current ID set, and commit the new sequence in one transaction. Touch drag handles and accessible Up/Down controls use the same endpoint.
 
@@ -85,11 +85,11 @@ The anniversary date may be left unset; the home page does not invent one. Leap-
 
 Existing albums are migrated idempotently into Journal moments on startup. Their protected media rows remain intact and are associated with the new moments, while a hidden system album owns photos uploaded directly to Journal. Legacy album links redirect to the corresponding Journal destination, and the legacy authenticated photo-content URL remains available so existing private media references do not break.
 
-## Journal photos and Adventure events
+## Timeline and Journal photos, and Adventure events
 
-New Journal and home-photo uploads are written under `UPLOAD_DIR` (default `runtime/uploads`) and are never exposed by static middleware. Signed-in members can upload JPEG, PNG, WebP, HEIC, or HEIF. HEIC/HEIF files are dimension-checked and converted to JPEG before storage. The server enforces `UPLOAD_MAX_BYTES`, validates signatures after upload, assigns random storage names, and cleans rejected or rolled-back files. Journal and home-hero media use authenticated responses with private no-store and `nosniff` headers.
+New Timeline, Journal, and home-photo uploads are written under `UPLOAD_DIR` (default `runtime/uploads`) and are never exposed by static middleware. Signed-in members can upload JPEG, PNG, WebP, HEIC, or HEIF. HEIC/HEIF files are dimension-checked and converted to JPEG before storage. The server enforces `UPLOAD_MAX_BYTES`, validates signatures after upload, assigns random storage names, and cleans rejected or rolled-back files. Timeline replacement, removal, and milestone deletion commit database changes before orphan cleanup; only files explicitly marked as runtime uploads are deleted. Timeline, Journal, and home-hero media use authenticated responses with private no-store, PWA media opt-in, and `nosniff` headers.
 
-Deployment-local images already under `public/images` can be linked by an explicit `/images/<basename>` reference. The application does not enumerate that directory. Keep private deployment images out of GitHub.
+Existing deployment-local Timeline paths under `public/images` remain compatible in imported fallback data and existing database rows. They are served through the protected Timeline response when the database is available, are never deleted by photo replacement/removal, and remain directly available to the file fallback during an outage. The application does not enumerate that directory. Keep private deployment images out of GitHub.
 
 Events are created, edited, reordered, and reviewed inside Adventure. Each event has an ICS download for a device calendar; an optional calendar-alert time becomes an ICS alarm. Times continue to use the configured IANA timezone. GBAGL does not request browser-notification permission or expose a reminder feed.
 
@@ -100,7 +100,7 @@ GBAGL exposes a checked-in web-app manifest, GK Apple touch icon, and maskable i
 The versioned service worker keeps two separate caches:
 
 - The public shell contains only the lock/offline stylesheet, scripts, manifest, and icons. It contains no relationship data.
-- The private cache accepts only server-opted-in, read-only snapshots of `/`, `/timeline`, `/bucket`, `/adventure`, and `/journal`, plus successfully authorized Journal and home-photo responses. Live HTML with forms or CSRF tokens is never stored.
+- The private cache accepts only server-opted-in, read-only snapshots of `/`, `/timeline`, `/bucket`, `/adventure`, and `/journal`, plus successfully authorized Timeline, Journal, and home-photo responses. Live HTML with forms or CSRF tokens is never stored.
 
 Settings pages, backup and keepsake downloads, calendar downloads, writes, redirects, cross-origin resources, authorization failures, and arbitrary paths are never cached. Previously viewed private pages can be read offline, but all forms are absent from offline snapshots and live mutation controls disable when the browser goes offline.
 
@@ -146,6 +146,7 @@ Backups use one repeatable-read MySQL snapshot for all exported tables, preserve
 |---|---|---|
 | `/` | Viewer | Home |
 | `/timeline` | Viewer read; member write | Ordered relationship timeline and granular milestone editing |
+| `/timeline/photos/:id/content` | Viewer | Protected Timeline milestone photo response |
 | `/bucket` | Viewer read; member write | Shared bucket list, votes, completion, and memories |
 | `/adventure` | Viewer read; member write | Date ideas, status legend, and upcoming/past events |
 | `/media/home-photo` | Viewer | Protected home hero photo |
@@ -160,7 +161,7 @@ Backups use one repeatable-read MySQL snapshot for all exported tables, preserve
 
 ## Private deployment data
 
-The public repository intentionally contains placeholders rather than personal photos or customized timeline entries. Runtime uploads—including the home hero photo—remain outside Git. Keep other deployment-only media and timeline data in the private deployment commit. Existing compatible paths such as `public/images` and `data/timeline.js` remain supported.
+The public repository intentionally contains placeholders rather than personal photos or customized timeline entries. Runtime uploads—including Timeline and home hero photos—remain outside Git. Keep other deployment-only media and timeline data in the private deployment commit. Existing compatible paths such as `public/images` and `data/timeline.js` remain supported.
 
 Do not commit `.env`, runtime uploads, backup archives, database exports, or private media. This project does not automatically upload backups off-host.
 
@@ -170,4 +171,4 @@ Do not commit `.env`, runtime uploads, backup archives, database exports, or pri
 npm test
 ```
 
-The test suite uses Node's built-in test runner and covers configuration, viewer/member/administrator authorization, signed cookies, CSRF/path validation, countdown/leap-day behavior, album migration, JPEG/PNG/WebP/HEIC upload validation and cleanup, vote toggling, ICS formatting, cache policy and lock clearing, export authorization and transaction cleanup, ZIP safety/content, PDF output, and key lock/settings/feature HTTP behavior.
+The test suite uses Node's built-in test runner and covers configuration, viewer/member/administrator authorization, signed cookies, CSRF/path validation, countdown/leap-day behavior, album migration, Timeline and Journal JPEG/PNG/WebP/HEIC upload validation and cleanup, legacy Timeline photo preservation, protected media responses, responsive editor containment, vote toggling, ICS formatting, cache policy and lock clearing, export authorization and transaction cleanup, ZIP safety/content, PDF output, and key lock/settings/feature HTTP behavior.

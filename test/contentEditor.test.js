@@ -64,12 +64,28 @@ test('every ordered content surface exposes protected reorder metadata', () => {
 
 test('timeline edit mode exposes granular forms for every milestone', () => {
   const timeline = read('views/timeline.ejs');
+  const fields = read('views/partials/milestone-fields.ejs');
+  const styles = read('public/css/style.css');
   assert.match(timeline, /data-timeline-edit-toggle/);
   assert.match(timeline, /data-timeline-edit-controls/);
   assert.match(timeline, /aria-controls="timeline-edit-controls"/);
   assert.match(timeline, /action="\/timeline\/<%= milestone.id %>"/);
   assert.match(timeline, /partials\/milestone-fields/);
-  assert.doesNotMatch(read('views/partials/milestone-fields.ejs'), /name="display_order"/);
+  assert.match(timeline, /enctype="multipart\/form-data"/);
+  assert.match(timeline, /\/timeline\/photos\/\$\{milestone.id\}\/content/);
+  assert.match(timeline, /data-private-media/);
+  assert.doesNotMatch(
+    fields,
+    /name="display_order"|Image path|images\/memory|data-private-media/,
+  );
+  assert.match(fields, /name="photo" type="file"/);
+  assert.match(fields, /Choose a replacement photo/);
+  assert.match(fields, /Current photo/);
+  assert.match(fields, /name="remove_photo" value="1"/);
+  assert.match(styles, /\.timeline__card \.admin-grid\s*\{[\s\S]*minmax\(0, 1fr\)/);
+  assert.match(styles, /\.timeline__card \.btn\s*\{[\s\S]*white-space: normal/);
+  assert.match(styles, /\.form-select,[\s\S]*width: 100%;[\s\S]*max-width: 100%;[\s\S]*min-width: 0/);
+  assert.match(styles, /repeat\(2, minmax\(0, 1fr\)\)/);
 });
 
 test('editable page templates render with representative content', async () => {

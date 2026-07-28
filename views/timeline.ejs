@@ -32,7 +32,8 @@
                <%= editMode ? '' : 'hidden' %>>
         <details class="card editor-panel">
           <summary>Add a timeline milestone</summary>
-          <form action="/timeline" method="post" class="admin-form">
+          <form action="/timeline" method="post" enctype="multipart/form-data"
+                class="admin-form">
             <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
             <%- include('partials/milestone-fields', {
               milestone: {
@@ -40,10 +41,10 @@
                 title: '',
                 description: '',
                 emoji: '',
-                photo: '',
                 link_url: ''
               },
-              prefix: 'new-milestone'
+              prefix: 'new-milestone',
+              photoUrl: null
             }) %>
             <button type="submit" class="btn btn--primary">Add milestone</button>
           </form>
@@ -56,6 +57,11 @@
 
     <div class="timeline" data-reorder-group="timeline" data-reorder-url="/timeline/reorder">
       <% milestones.forEach((milestone, index) => { %>
+        <% const photoUrl = milestone.photo
+          ? (milestone.id
+            ? `/timeline/photos/${milestone.id}/content`
+            : `/${milestone.photo}`)
+          : null; %>
         <div class="timeline__item <%= index % 2 === 0 ? 'timeline__item--left' : 'timeline__item--right' %>"
              id="<%= milestone.id ? `milestone-${milestone.id}` : '' %>"
              <% if (milestone.id) { %>data-reorder-item data-reorder-id="<%= milestone.id %>"<% } %>>
@@ -89,8 +95,9 @@
               </aside>
             <% }) %>
 
-            <% if (milestone.photo) { %>
-              <img src="/<%= milestone.photo %>"
+            <% if (photoUrl) { %>
+              <img src="<%= photoUrl %>"
+                   <% if (milestone.id) { %>data-private-media<% } %>
                    alt="<%= milestone.title %>"
                    class="timeline__photo"
                    loading="lazy" />
@@ -104,11 +111,13 @@
             <% if (canEdit && !timelineDegraded && milestone.id) { %>
               <details class="item-editor" data-timeline-edit-controls <%= editMode ? '' : 'hidden' %>>
                 <summary>Edit this milestone</summary>
-                <form action="/timeline/<%= milestone.id %>" method="post" class="admin-form">
+                <form action="/timeline/<%= milestone.id %>" method="post"
+                      enctype="multipart/form-data" class="admin-form">
                   <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
                   <%- include('partials/milestone-fields', {
                     milestone,
-                    prefix: `milestone-${milestone.id}`
+                    prefix: `milestone-${milestone.id}`,
+                    photoUrl
                   }) %>
                   <button type="submit" class="btn btn--primary">Save milestone</button>
                 </form>
