@@ -1,0 +1,47 @@
+<div class="form-row">
+  <div class="form-group">
+    <label for="<%= prefix %>-vibe" class="form-label">Vibe / Mood</label>
+    <select name="vibe" id="<%= prefix %>-vibe" class="form-select" required>
+      <option value="" disabled <%= !idea.vibe ? 'selected' : '' %>>Pick a vibe...</option>
+      <% validVibes.forEach((value) => { %>
+        <option value="<%= value %>" <%= idea.vibe === value ? 'selected' : '' %>><%= {
+          cozy: 'Cozy',
+          adventurous: 'Adventurous',
+          foodie: 'Foodie',
+          artsy: 'Artsy',
+          chill: 'Chill'
+        }[value] || value %></option>
+      <% }) %>
+    </select>
+  </div>
+  <div class="form-group">
+    <label for="<%= prefix %>-budget" class="form-label">Budget</label>
+    <select name="budget" id="<%= prefix %>-budget" class="form-select" required>
+      <option value="" disabled <%= !idea.budget ? 'selected' : '' %>>Pick a budget...</option>
+      <% validBudgets.forEach((value) => { %>
+        <option value="<%= value %>" <%= idea.budget === value ? 'selected' : '' %>><%= {
+          free: 'Free',
+          '$': 'Budget-friendly',
+          '$$': 'Moderate',
+          '$$$': 'Splurge'
+        }[value] || value %></option>
+      <% }) %>
+    </select>
+  </div>
+  <div class="form-group">
+    <label for="<%= prefix %>-location" class="form-label">Setting</label>
+    <select name="location" id="<%= prefix %>-location" class="form-select" required>
+      <option value="" disabled <%= !idea.location ? 'selected' : '' %>>Pick a setting...</option>
+      <% validLocations.forEach((value) => { %>
+        <option value="<%= value %>" <%= idea.location === value ? 'selected' : '' %>><%= value %></option>
+      <% }) %>
+    </select>
+  </div>
+</div>
+<div class="form-group">
+  <label for="<%= prefix %>-notes" class="form-label">
+    Notes <span class="form-label__optional">(optional)</span>
+  </label>
+  <textarea name="notes" id="<%= prefix %>-notes" class="form-textarea"
+            rows="3" maxlength="1000"><%= idea.notes || '' %></textarea>
+</div>

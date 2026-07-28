@@ -1,6 +1,6 @@
 <%- include('partials/head') %>
 <%- include('partials/nav') %>
-<main class="content-page">
+<main class="content-page" id="main-content" tabindex="-1">
   <div class="container">
     <header class="page-header">
       <h1 class="page-header__title">Our Bucket List</h1>
@@ -9,16 +9,41 @@
     <% if (message) { %><div class="alert alert--success"><%= message %></div><% } %>
     <% if (error) { %><div class="alert alert--error"><%= error %></div><% } %>
     <% if (dbError) { %><div class="alert alert--warning"><%= dbError %></div><% } %>
-    <div class="hub-grid">
+    <% if (!canEdit && !offlineSnapshot) { %>
+      <div class="read-only-note">View-only mode: sign in from Settings to vote or update the Bucket List.</div>
+    <% } %>
+    <% if (!dbError && canEdit) { %>
+      <details class="card editor-panel">
+        <summary>Add a Bucket List item</summary>
+        <form action="/bucket" method="post" class="admin-form">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+          <%- include('partials/bucket-fields', {
+            item: { title: '', description: '', category: 'other', target_date: '' },
+            prefix: 'new-bucket-item'
+          }) %>
+          <button type="submit" class="btn btn--primary">Add item</button>
+        </form>
+      </details>
+      <% if (items.length > 1) { %>
+        <%- include('partials/reorder-toolbar', { group: 'bucket', label: 'Bucket List items' }) %>
+      <% } %>
+    <% } %>
+    <div class="hub-grid" data-reorder-group="bucket" data-reorder-url="/bucket/reorder">
       <% items.forEach((item) => { %>
-        <article class="card hub-card <%= item.completed_at ? 'hub-card--complete' : '' %>">
+        <article class="card hub-card <%= item.completed_at ? 'hub-card--complete' : '' %>"
+                 data-reorder-item data-reorder-id="<%= item.id %>">
+          <% if (canEdit) { %>
+            <%- include('partials/reorder-controls', {
+              label: `Bucket List item ${item.title}`
+            }) %>
+          <% } %>
           <header class="hub-card__header">
             <div>
               <span class="tag"><%= item.category %></span>
               <% if (item.is_favorite) { %><span aria-label="Favorite">★</span><% } %>
               <h2 class="card__title"><%= item.title %></h2>
             </div>
-            <% if (!offlineSnapshot) { %><form action="/bucket/<%= item.id %>/favorite" method="post">
+            <% if (canEdit) { %><form action="/bucket/<%= item.id %>/favorite" method="post">
               <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
               <button class="btn btn--outline" type="submit"><%= item.is_favorite ? 'Unfavorite' : 'Favorite' %></button>
             </form><% } %>
@@ -27,7 +52,7 @@
           <% if (item.target_date) { %><p><strong>Target:</strong> <%= item.target_date %></p><% } %>
           <div class="vote-grid">
             <% ['partner_one', 'partner_two'].forEach((slot) => { %>
-              <% if (!offlineSnapshot) { %><form action="/bucket/<%= item.id %>/vote" method="post" class="compact-form">
+              <% if (canEdit) { %><form action="/bucket/<%= item.id %>/vote" method="post" class="compact-form">
                 <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
                 <input type="hidden" name="voter_slot" value="<%= slot %>" />
                 <label class="form-label" for="vote-<%= item.id %>-<%= slot %>"><%= labels[slot] %></label>
@@ -43,7 +68,7 @@
               <% } %>
             <% }) %>
           </div>
-          <% if (!offlineSnapshot) { %><form action="/bucket/<%= item.id %>/completion" method="post" class="compact-form">
+          <% if (canEdit) { %><form action="/bucket/<%= item.id %>/completion" method="post" class="compact-form">
             <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
             <% if (item.completed_at) { %>
               <input type="hidden" name="completed" value="0" />
@@ -59,7 +84,7 @@
             <p><strong>Completed:</strong> <%= item.completed_at %></p>
           <% } %>
           <% if (item.completed_at) { %>
-            <% if (!offlineSnapshot) { %><form action="/bucket/<%= item.id %>/memory" method="post" class="compact-form">
+            <% if (canEdit) { %><form action="/bucket/<%= item.id %>/memory" method="post" class="compact-form">
               <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
               <label class="form-label" for="memory-<%= item.id %>">Memory or reflection</label>
               <textarea class="form-textarea" id="memory-<%= item.id %>" name="memory"
@@ -69,11 +94,29 @@
               <p class="preserve-lines"><strong>Memory:</strong><br /><%= item.memory %></p>
             <% } %>
           <% } %>
+          <% if (canEdit) { %>
+            <details class="item-editor">
+              <summary>Edit item details</summary>
+              <form action="/bucket/<%= item.id %>" method="post" class="admin-form">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                <%- include('partials/bucket-fields', {
+                  item,
+                  prefix: `bucket-${item.id}`
+                }) %>
+                <button type="submit" class="btn btn--primary">Save changes</button>
+              </form>
+              <form action="/bucket/<%= item.id %>/delete" method="post"
+                    class="admin-danger" data-confirm="Delete this Bucket List item?">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                <button type="submit" class="btn btn--outline">Delete item</button>
+              </form>
+            </details>
+          <% } %>
         </article>
       <% }) %>
     </div>
     <% if (!dbError && items.length === 0) { %>
-      <div class="empty-state"><h2>No dreams yet</h2><p>An admin can add the first bucket-list item.</p></div>
+      <div class="empty-state"><h2>No dreams yet</h2><p>Gierael or Kim can add the first one here.</p></div>
     <% } %>
   </div>
 </main>

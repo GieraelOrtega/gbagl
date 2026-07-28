@@ -1,7 +1,7 @@
 <%- include('partials/head') %>
 <%- include('partials/nav') %>
 
-<main class="page-adventure">
+<main class="page-adventure" id="main-content" tabindex="-1">
   <div class="container">
 
     <header class="page-header">
@@ -21,85 +21,45 @@
     <% if (dbError) { %>
       <div class="alert alert--warning">⚠️ <%= dbError %></div>
     <% } %>
+    <% if (!canEdit && !offlineSnapshot) { %>
+      <div class="read-only-note">View-only mode: sign in from Settings to add or update adventure ideas.</div>
+    <% } %>
 
-    <!-- ── New idea form ──────────────────────────────────────── -->
-    <% if (!dbError) { %>
-    <section class="card form-card">
-      <h2 class="card__title">✍️ Add a New Idea</h2>
-      <form action="/adventure" method="POST" class="idea-form">
-        <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-
-        <div class="form-row">
-          <!-- Vibe -->
-          <div class="form-group">
-            <label for="vibe" class="form-label">Vibe / Mood</label>
-            <select name="vibe" id="vibe" class="form-select" required>
-              <option value="" disabled selected>Pick a vibe…</option>
-              <% validVibes.forEach(v => { %>
-                <option value="<%= v %>"><%= {
-                  cozy: '🍵 Cozy',
-                  adventurous: '🏔️ Adventurous',
-                  foodie: '🍽️ Foodie',
-                  artsy: '🎨 Artsy',
-                  chill: '😌 Chill'
-                }[v] || v %></option>
-              <% }) %>
-            </select>
-          </div>
-
-          <!-- Budget -->
-          <div class="form-group">
-            <label for="budget" class="form-label">Budget</label>
-            <select name="budget" id="budget" class="form-select" required>
-              <option value="" disabled selected>Pick a budget…</option>
-              <% validBudgets.forEach(b => { %>
-                <option value="<%= b %>"><%= {
-                  free: '🆓 Free',
-                  '$':  '$ Budget-friendly',
-                  '$$': '$$ Moderate',
-                  '$$$':'$$$ Splurge'
-                }[b] || b %></option>
-              <% }) %>
-            </select>
-          </div>
-
-          <!-- Location -->
-          <div class="form-group">
-            <label for="location" class="form-label">Setting</label>
-            <select name="location" id="location" class="form-select" required>
-              <option value="" disabled selected>Pick a setting…</option>
-              <% validLocations.forEach(l => { %>
-                <option value="<%= l %>"><%= {
-                  'at home':       '🏠 At Home',
-                  'indoors':       '🏢 Indoors',
-                  'outdoors':      '🌿 Outdoors',
-                  'out on the town':'🌆 Out on the Town'
-                }[l] || l %></option>
-              <% }) %>
-            </select>
-          </div>
-        </div>
-
-        <!-- Notes -->
-        <div class="form-group">
-          <label for="notes" class="form-label">Notes <span class="form-label__optional">(optional)</span></label>
-          <textarea name="notes" id="notes" class="form-textarea"
-                    rows="3" maxlength="1000"
-                    placeholder="Any details, restaurants to try, places to go…"></textarea>
-        </div>
-
-        <button type="submit" class="btn btn--primary btn--full">Save Idea 💕</button>
-      </form>
-    </section>
+    <% if (!dbError && canEdit) { %>
+      <details class="card editor-panel form-card">
+        <summary>Add an adventure idea</summary>
+        <form action="/adventure" method="post" class="admin-form">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+          <%- include('partials/adventure-fields', {
+            idea: { vibe: '', budget: '', location: '', notes: '' },
+            prefix: 'new-idea',
+            validVibes,
+            validBudgets,
+            validLocations
+          }) %>
+          <button type="submit" class="btn btn--primary">Save idea</button>
+        </form>
+      </details>
     <% } %>
 
     <!-- ── Saved ideas ─────────────────────────────────────── -->
     <% if (!dbError && ideas.length > 0) { %>
     <section class="ideas-section">
-      <h2 class="section-title section-title--left">Our Saved Ideas 📝</h2>
-      <div class="ideas-grid">
+      <div class="section-heading">
+        <h2 class="section-title section-title--left">Our Saved Ideas 📝</h2>
+        <% if (canEdit && ideas.length > 1) { %>
+          <%- include('partials/reorder-toolbar', { group: 'adventures', label: 'ideas' }) %>
+        <% } %>
+      </div>
+      <div class="ideas-grid" data-reorder-group="adventures" data-reorder-url="/adventure/reorder">
         <% ideas.forEach(idea => { %>
-        <article class="idea-card idea-card--<%= idea.status %>">
+        <article class="idea-card idea-card--<%= idea.status %>"
+                 data-reorder-item data-reorder-id="<%= idea.id %>">
+          <% if (canEdit) { %>
+            <%- include('partials/reorder-controls', {
+              label: `adventure idea ${idea.notes || idea.vibe}`
+            }) %>
+          <% } %>
 
           <div class="idea-card__badges">
             <span class="badge badge--vibe"><%= {
@@ -124,7 +84,7 @@
             </span>
           </div>
 
-          <div class="idea-card__actions">
+          <% if (canEdit) { %><div class="idea-card__actions">
             <!-- Status toggles: each button submits its own value via name="status" -->
             <form action="/adventure/<%= idea.id %>/status" method="POST" class="status-form">
               <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
@@ -141,17 +101,37 @@
                         class="btn-icon" title="Reset to Idea">💭</button>
               <% } %>
             </form>
-            <!-- Delete -->
-            <form action="/adventure/<%= idea.id %>/delete" method="POST">
-              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-              <button type="submit" class="btn-icon btn-icon--danger" title="Delete">🗑️</button>
-            </form>
-          </div>
+          </div><% } %>
+
+          <% if (canEdit) { %>
+            <details class="item-editor">
+              <summary>Edit this idea</summary>
+              <form action="/adventure/<%= idea.id %>" method="post" class="admin-form">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                <%- include('partials/adventure-fields', {
+                  idea,
+                  prefix: `idea-${idea.id}`,
+                  validVibes,
+                  validBudgets,
+                  validLocations
+                }) %>
+                <button type="submit" class="btn btn--primary">Save changes</button>
+              </form>
+              <form action="/adventure/<%= idea.id %>/delete" method="post"
+                    class="admin-danger" data-confirm="Delete this adventure idea?">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                <button type="submit" class="btn btn--outline">Delete idea</button>
+              </form>
+            </details>
+          <% } %>
 
         </article>
         <% }) %>
       </div>
     </section>
+    <% } %>
+    <% if (!dbError && ideas.length === 0) { %>
+      <div class="empty-state">No saved ideas yet. Gierael or Kim can add the first one here.</div>
     <% } %>
 
     <!-- ── Inspiration ──────────────────────────────────────── -->

@@ -1,0 +1,136 @@
+<%- include('partials/head') %>
+<%- include('partials/nav') %>
+
+<main class="admin-page" id="main-content" tabindex="-1">
+  <div class="container">
+    <header class="page-header admin-header">
+      <div>
+        <h1 class="page-header__title">Settings</h1>
+        <p class="page-header__subtitle">
+          Signed in as <strong><%= currentUser.displayName %></strong>
+          · <%= isAdmin ? 'Administrator' : 'Member' %>
+        </p>
+      </div>
+      <form action="/settings/logout" method="post">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+        <button type="submit" class="btn btn--outline">Return to view-only</button>
+      </form>
+    </header>
+
+    <% if (message) { %><div class="alert alert--success"><%= message %></div><% } %>
+    <% if (error) { %><div class="alert alert--error"><%= error %></div><% } %>
+    <% if (dbError) { %><div class="alert alert--warning"><%= dbError %></div><% } %>
+
+    <section class="card admin-section" aria-labelledby="appearance-title">
+      <h2 class="card__title" id="appearance-title">Appearance</h2>
+      <div class="admin-grid">
+        <div class="form-group">
+          <label class="form-label" for="theme-preference">Color theme</label>
+          <select class="form-select" id="theme-preference" data-theme-select>
+            <option value="system">Use device setting</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <span class="form-label">Motion</span>
+          <label class="check-label">
+            <input type="checkbox" data-reduce-motion />
+            Reduce animations and movement
+          </label>
+        </div>
+      </div>
+      <p class="admin-help settings-saved" data-appearance-status role="status"></p>
+    </section>
+
+    <section class="card admin-section" aria-labelledby="access-title">
+      <h2 class="card__title" id="access-title">Account &amp; access</h2>
+      <p>
+        <strong><%= currentUser.displayName %></strong> can create and update shared
+        adventures, timeline entries, bucket-list items, events, albums, photos,
+        and journal entries.
+      </p>
+      <% if (isAdmin) { %>
+        <p class="admin-help">Your administrator role also controls site settings, backups, and keepsake exports.</p>
+      <% } else { %>
+        <p class="admin-help">Site configuration, backups, exports, and other administrative controls are restricted to Gierael.</p>
+      <% } %>
+      <p class="admin-help">Account passwords are deployment secrets. Change the related environment variable and restart the app to rotate one.</p>
+    </section>
+
+    <section class="card admin-section" aria-labelledby="content-pages-title">
+      <h2 class="card__title" id="content-pages-title">Content pages</h2>
+      <p class="admin-help">
+        Adding, editing, and reordering now happens directly on each page so you
+        can see every change in context.
+      </p>
+      <nav class="admin-tools" aria-label="Shared content pages">
+      <a class="btn btn--outline" href="/adventure">Adventure planner</a>
+      <a class="btn btn--outline" href="/timeline">Timeline</a>
+      <a class="btn btn--outline" href="/bucket">Bucket List</a>
+      <a class="btn btn--outline" href="/reminders">Events</a>
+      <a class="btn btn--outline" href="/albums">Albums &amp; photos</a>
+      <a class="btn btn--outline" href="/journal">Journal entries</a>
+      <% if (isAdmin) { %><a class="btn btn--outline" href="/settings/exports">Keepsake exports</a><% } %>
+      </nav>
+    </section>
+
+    <% if (isAdmin) { %>
+      <section class="card admin-section" id="site-settings">
+        <h2 class="card__title">Site settings</h2>
+        <form action="/settings/site" method="post" class="admin-form">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+          <div class="admin-grid">
+            <div class="form-group">
+              <label class="form-label" for="partner-one">First partner display name</label>
+              <input class="form-input" id="partner-one" name="partner_one_name"
+                     maxlength="80" value="<%= settings.partner_one_name || '' %>" required />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="partner-two">Second partner display name</label>
+              <input class="form-input" id="partner-two" name="partner_two_name"
+                     maxlength="80" value="<%= settings.partner_two_name || '' %>" required />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="anniversary">Anniversary date</label>
+              <input class="form-input" id="anniversary" name="anniversary_date" type="date"
+                     value="<%= settings.anniversary_date || '' %>" />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="timezone">IANA timezone</label>
+              <input class="form-input" id="timezone" name="timezone" maxlength="100"
+                     value="<%= settings.timezone || 'UTC' %>" required />
+            </div>
+          </div>
+          <button type="submit" class="btn btn--primary">Save site settings</button>
+        </form>
+      </section>
+    <% } %>
+
+    <% if (isAdmin) { %>
+      <section class="card admin-section">
+        <div class="admin-row">
+          <div>
+            <h2 class="card__title">Backups</h2>
+            <p class="admin-help">ZIP archives include application tables, a manifest, and configured media.</p>
+          </div>
+          <form action="/settings/backups" method="post">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+            <button type="submit" class="btn btn--primary">Create backup now</button>
+          </form>
+        </div>
+        <ul class="backup-list">
+          <% backups.forEach((backup) => { %>
+            <li>
+              <a href="/settings/backups/<%= backup.name %>"><%= backup.name %></a>
+              <span><%= (backup.size / 1024).toFixed(1) %> KB</span>
+            </li>
+          <% }) %>
+          <% if (backups.length === 0) { %><li>No backups available yet.</li><% } %>
+        </ul>
+      </section>
+    <% } %>
+  </div>
+</main>
+
+<%- include('partials/footer') %>

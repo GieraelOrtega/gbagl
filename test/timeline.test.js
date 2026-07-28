@@ -1,8 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
+  RELATIONSHIP_BASICS_MARKER,
   TIMELINE_IMPORT_MARKER,
   importTimelineOnce,
+  seedRelationshipBasics,
 } = require('../db');
 const { loadMilestones, loadMilestonesResult } = require('../routes/timeline');
 
@@ -85,6 +87,54 @@ test('existing deployment rows are marked migrated without being overwritten', a
   assert.equal(await importTimelineOnce(fake.pool, [{ title: 'Public fallback' }]), false);
   assert.deepEqual(fake.state.milestones, existing);
   assert.equal(fake.state.marker, 'complete');
+});
+
+test('relationship basics run once so later cleared settings survive restarts', async () => {
+  const state = {
+    anniversary: '',
+    marker: null,
+    milestoneUpdates: 0,
+  };
+  const connection = {
+    beginTransaction: async () => {},
+    commit: async () => {},
+    rollback: async () => {},
+    release: () => {},
+    execute: async (sql, params = []) => {
+      if (sql.includes('INSERT IGNORE INTO site_settings')) {
+        assert.equal(params[0], RELATIONSHIP_BASICS_MARKER);
+        if (state.marker === null) state.marker = 'pending';
+        return [{ affectedRows: 1 }];
+      }
+      if (sql.includes('SELECT setting_value FROM site_settings')) {
+        assert.equal(params[0], RELATIONSHIP_BASICS_MARKER);
+        return [[{ setting_value: state.marker }]];
+      }
+      if (sql.includes('CASE setting_key')) {
+        if (state.anniversary === '') state.anniversary = '2025-12-08';
+        return [{ affectedRows: 1 }];
+      }
+      if (sql.includes('UPDATE timeline_milestones')) {
+        state.milestoneUpdates += 1;
+        return [{ affectedRows: 1 }];
+      }
+      if (sql.includes("SET setting_value = 'complete'")) {
+        state.marker = 'complete';
+        return [{ affectedRows: 1 }];
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    },
+  };
+  const databasePool = { getConnection: async () => connection };
+
+  assert.equal(await seedRelationshipBasics(databasePool), true);
+  assert.equal(state.anniversary, '2025-12-08');
+  assert.equal(state.milestoneUpdates, 1);
+
+  state.anniversary = '';
+  assert.equal(await seedRelationshipBasics(databasePool), false);
+  assert.equal(state.anniversary, '');
+  assert.equal(state.milestoneUpdates, 1);
 });
 
 test('complete migration marker makes an empty timeline authoritative', async () => {

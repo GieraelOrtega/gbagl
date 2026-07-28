@@ -12,6 +12,12 @@ const express        = require('express');
 const rateLimit      = require('express-rate-limit');
 const router         = express.Router();
 const { getPool, isDbAvailable } = require('../db');
+const {
+  nextDisplayOrder,
+  publicOrderError,
+  reorderCollection,
+} = require('../lib/contentOrder');
+const { positiveId, text } = require('../lib/validation');
 
 // ── Rate limiting ──────────────────────────────────────────
 // Prevents spamming the DB-backed endpoints.
@@ -73,6 +79,22 @@ const VALID_BUDGETS   = ['free', '$', '$$', '$$$'];
 const VALID_LOCATIONS = ['at home', 'indoors', 'outdoors', 'out on the town'];
 const VALID_STATUSES  = ['pending', 'done', 'favorite'];
 
+function redirectMessage(res, type, message) {
+  return res.redirect(303, `/adventure?${new URLSearchParams({ [type]: message })}`);
+}
+
+function validateIdea(body) {
+  if (!VALID_VIBES.includes(body.vibe)) throw new Error('Choose a valid vibe');
+  if (!VALID_BUDGETS.includes(body.budget)) throw new Error('Choose a valid budget');
+  if (!VALID_LOCATIONS.includes(body.location)) throw new Error('Choose a valid setting');
+  return {
+    vibe: body.vibe,
+    budget: body.budget,
+    location: body.location,
+    notes: text(body.notes, 'Notes', 1000, { required: false }),
+  };
+}
+
 // ── GET /adventure ─────────────────────────────────────────
 router.get('/', readLimiter, async (req, res) => {
   let ideas    = [];
@@ -82,7 +104,7 @@ router.get('/', readLimiter, async (req, res) => {
     try {
       const [rows] = await getPool().execute(
         `SELECT *, DATE_FORMAT(created_at, '%b %e, %Y') AS created_at_display
-         FROM date_ideas ORDER BY created_at DESC`,
+        FROM date_ideas ORDER BY display_order, created_at DESC, id DESC`,
       );
       ideas = rows;
     } catch (err) {
@@ -112,34 +134,57 @@ router.get('/', readLimiter, async (req, res) => {
 // ── POST /adventure (create) ───────────────────────────────
 router.post('/', writeLimiter, async (req, res) => {
   if (!isDbAvailable()) {
-    return res.redirect(
-      '/adventure?error=Database+not+available+right+now.+Try+again+soon!',
-    );
+    return redirectMessage(res, 'error', 'Database not available right now. Try again soon!');
   }
-
-  const { vibe, budget, location, notes } = req.body;
-
-  // Validate all selection fields against the whitelist
-  if (
-    !VALID_VIBES.includes(vibe) ||
-    !VALID_BUDGETS.includes(budget) ||
-    !VALID_LOCATIONS.includes(location)
-  ) {
-    return res.redirect('/adventure?error=Invalid+form+values.+Please+try+again.');
-  }
-
-  // Sanitise the free-text notes field (strip leading/trailing whitespace)
-  const safeNotes = typeof notes === 'string' ? notes.trim().slice(0, 1000) : '';
 
   try {
+    const idea = validateIdea(req.body);
+    const displayOrder = await nextDisplayOrder(getPool(), 'adventures');
     await getPool().execute(
-      'INSERT INTO date_ideas (vibe, budget, location, notes) VALUES (?, ?, ?, ?)',
-      [vibe, budget, location, safeNotes],
+      `INSERT INTO date_ideas (vibe, budget, location, notes, display_order)
+       VALUES (?, ?, ?, ?, ?)`,
+      [idea.vibe, idea.budget, idea.location, idea.notes, displayOrder],
     );
-    res.redirect('/adventure?message=Date+idea+saved!+%F0%9F%92%95');
+    return redirectMessage(res, 'message', 'Date idea saved!');
   } catch (err) {
     console.error('Error saving idea:', err.message);
-    res.redirect('/adventure?error=Could+not+save+your+idea.+Try+again!');
+    return redirectMessage(res, 'error', err.message);
+  }
+});
+
+router.post('/reorder', async (req, res) => {
+  if (!isDbAvailable()) return res.status(503).json({ error: 'Database unavailable' });
+  try {
+    await reorderCollection(getPool(), 'adventures', req.body.ids);
+    return res.status(204).end();
+  } catch (error) {
+    console.error('Adventure reorder failed:', error.message);
+    const publicError = publicOrderError(error);
+    return res.status(publicError.status).json({ error: publicError.message });
+  }
+});
+
+router.post('/:id', writeLimiter, async (req, res) => {
+  if (!isDbAvailable()) return redirectMessage(res, 'error', 'Database unavailable.');
+  try {
+    const idea = validateIdea(req.body);
+    const [result] = await getPool().execute(
+      `UPDATE date_ideas
+       SET vibe = ?, budget = ?, location = ?, notes = ?
+       WHERE id = ?`,
+      [
+        idea.vibe,
+        idea.budget,
+        idea.location,
+        idea.notes,
+        positiveId(req.params.id),
+      ],
+    );
+    if (result.affectedRows !== 1) throw new Error('Adventure idea not found');
+    return redirectMessage(res, 'message', 'Adventure idea updated.');
+  } catch (error) {
+    console.error('Adventure update failed:', error.message);
+    return redirectMessage(res, 'error', error.message);
   }
 });
 
@@ -149,15 +194,13 @@ router.post('/:id/delete', writeLimiter, async (req, res) => {
     return res.redirect('/adventure?error=Database+not+available.');
   }
 
-  const id = parseInt(req.params.id, 10);
-  if (isNaN(id) || id <= 0) return res.redirect('/adventure');
-
   try {
+    const id = positiveId(req.params.id);
     await getPool().execute('DELETE FROM date_ideas WHERE id = ?', [id]);
-    res.redirect('/adventure?message=Idea+removed.');
+    return redirectMessage(res, 'message', 'Idea removed.');
   } catch (err) {
     console.error('Error deleting idea:', err.message);
-    res.redirect('/adventure?error=Could+not+delete+that+idea.');
+    return redirectMessage(res, 'error', 'Could not delete that idea.');
   }
 });
 
@@ -167,22 +210,18 @@ router.post('/:id/status', writeLimiter, async (req, res) => {
     return res.redirect('/adventure?error=Database+not+available.');
   }
 
-  const id     = parseInt(req.params.id, 10);
-  const status = req.body.status;
-
-  if (isNaN(id) || id <= 0 || !VALID_STATUSES.includes(status)) {
-    return res.redirect('/adventure');
-  }
-
   try {
+    const id = positiveId(req.params.id);
+    const status = req.body.status;
+    if (!VALID_STATUSES.includes(status)) throw new Error('Invalid idea status');
     await getPool().execute(
       'UPDATE date_ideas SET status = ? WHERE id = ?',
       [status, id],
     );
-    res.redirect('/adventure');
+    return redirectMessage(res, 'message', 'Idea status updated.');
   } catch (err) {
     console.error('Error updating status:', err.message);
-    res.redirect('/adventure?error=Could+not+update+status.');
+    return redirectMessage(res, 'error', 'Could not update status.');
   }
 });
 

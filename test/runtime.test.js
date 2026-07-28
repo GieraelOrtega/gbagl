@@ -5,8 +5,21 @@ const { createApp } = require('../server');
 
 function testConfig() {
   return {
-    adminCookieHours: 12,
-    adminPassword: 'local-admin-passphrase',
+    accountCookieHours: 12,
+    accounts: [
+      {
+        username: 'gierael',
+        displayName: 'Gierael',
+        role: 'admin',
+        password: 'local-gierael-passphrase',
+      },
+      {
+        username: 'kim',
+        displayName: 'Kim',
+        role: 'member',
+        password: 'local-kim-passphrase',
+      },
+    ],
     backupDir: 'runtime/backups-runtime-test',
     backupIntervalHours: 24,
     backupMediaPaths: [],
@@ -107,15 +120,52 @@ test('blank GBAGL_DB_SOCKET overrides generic socket and uses scoped TCP setting
   assert.equal(options.port, 3307);
 });
 
-test('createApp trusts only loopback and private proxy networks', () => {
+test('createApp trusts only explicitly configured proxy addresses', () => {
   const { app } = createApp(testConfig(), { backupService: backupService() });
   const trustProxy = app.get('trust proxy fn');
 
   assert.equal(trustProxy('127.0.0.1', 0), true);
-  assert.equal(trustProxy('169.254.10.20', 0), true);
-  assert.equal(trustProxy('10.20.30.40', 0), true);
-  assert.equal(trustProxy('fc00::1', 0), true);
+  assert.equal(trustProxy('169.254.10.20', 0), false);
+  assert.equal(trustProxy('10.20.30.40', 0), false);
+  assert.equal(trustProxy('fc00::1', 0), false);
   assert.equal(trustProxy('8.8.8.8', 0), false);
+});
+
+test('production redirects insecure requests before serving authentication forms', async (t) => {
+  const config = {
+    ...testConfig(),
+    production: true,
+    publicOrigin: 'https://gba.gl',
+    uploadDir: 'runtime/uploads-https-test',
+  };
+  const { app } = createApp(config, { backupService: backupService() });
+  const server = app.listen(0);
+  await new Promise((resolve) => server.once('listening', resolve));
+  t.after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+    await require('fs').promises.rm(config.uploadDir, { force: true, recursive: true });
+  });
+  const base = `http://127.0.0.1:${server.address().port}`;
+
+  const redirected = await fetch(`${base}/settings/login?source=http`, {
+    redirect: 'manual',
+  });
+  assert.equal(redirected.status, 308);
+  assert.equal(
+    redirected.headers.get('location'),
+    'https://gba.gl/settings/login?source=http',
+  );
+  assert.match(redirected.headers.get('cache-control'), /no-store/);
+
+  const forwardedHttps = await fetch(`${base}/`, {
+    headers: { 'X-Forwarded-Proto': 'https' },
+    redirect: 'manual',
+  });
+  assert.equal(forwardedHttps.status, 401);
+  assert.match(
+    forwardedHttps.headers.get('strict-transport-security'),
+    /max-age=31536000/,
+  );
 });
 
 test('rate limiter accepts X-Forwarded-For from the local reverse proxy', async (t) => {

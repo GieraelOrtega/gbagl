@@ -15,8 +15,21 @@ function csrfFrom(html) {
 
 test('PWA shell is public while private snapshots and exports keep both auth boundaries', async (t) => {
   const config = {
-    adminCookieHours: 12,
-    adminPassword: 'local-admin-passphrase',
+    accountCookieHours: 12,
+    accounts: [
+      {
+        username: 'gierael',
+        displayName: 'Gierael',
+        role: 'admin',
+        password: 'local-gierael-passphrase',
+      },
+      {
+        username: 'kim',
+        displayName: 'Kim',
+        role: 'member',
+        password: 'local-kim-passphrase',
+      },
+    ],
     backupDir: 'runtime/backups-layer3-test',
     backupIntervalHours: 24,
     backupMediaPaths: [],
@@ -59,7 +72,7 @@ test('PWA shell is public while private snapshots and exports keep both auth bou
     const response = await fetch(`${base}${publicPath}`);
     assert.equal(response.status, 200, `${publicPath} should be public`);
   }
-  for (const privatePath of ['/js/main.js', '/reminders/feed.json', '/admin/exports']) {
+  for (const privatePath of ['/js/main.js', '/reminders/feed.json', '/settings/exports']) {
     const response = await fetch(`${base}${privatePath}`, { redirect: 'manual' });
     assert.equal(response.status, 401, `${privatePath} should remain locked`);
     assert.equal(response.headers.get('x-gbagl-authorization-lost'), '1');
@@ -97,16 +110,16 @@ test('PWA shell is public while private snapshots and exports keep both auth bou
   assert.doesNotMatch(snapshotHtml, /name="_csrf"|<form/i);
   assert.match(snapshotHtml, /Offline · read-only copies/);
 
-  const siteOnlyExport = await fetch(`${base}/admin/exports`, {
+  const siteOnlyExport = await fetch(`${base}/settings/exports`, {
     redirect: 'manual',
     headers: { Cookie: siteCookies },
   });
   assert.equal(siteOnlyExport.status, 303);
-  assert.equal(siteOnlyExport.headers.get('location'), '/admin/login');
+  assert.equal(siteOnlyExport.headers.get('location'), '/settings/login');
 
-  const loginPage = await fetch(`${base}/admin/login`, { headers: { Cookie: siteCookies } });
+  const loginPage = await fetch(`${base}/settings/login`, { headers: { Cookie: siteCookies } });
   const adminToken = csrfFrom(await loginPage.text());
-  const login = await fetch(`${base}/admin/login`, {
+  const login = await fetch(`${base}/settings/login`, {
     method: 'POST',
     redirect: 'manual',
     headers: {
@@ -115,19 +128,20 @@ test('PWA shell is public while private snapshots and exports keep both auth bou
     },
     body: new URLSearchParams({
       _csrf: adminToken,
-      password: config.adminPassword,
+      username: config.accounts[0].username,
+      password: config.accounts[0].password,
     }),
   });
-  const adminCookie = firstCookie(login);
-  const adminCookies = `${siteCookies}; ${adminCookie}`;
-  const exportsPage = await fetch(`${base}/admin/exports`, {
-    headers: { Cookie: adminCookies },
+  const accountCookie = firstCookie(login);
+  const accountCookies = `${siteCookies}; ${accountCookie}`;
+  const exportsPage = await fetch(`${base}/settings/exports`, {
+    headers: { Cookie: accountCookies },
   });
   assert.equal(exportsPage.status, 200);
   assert.match(await exportsPage.text(), /Keepsake Exports/);
 
-  const unavailableExport = await fetch(`${base}/admin/exports/keepsake.pdf`, {
-    headers: { Cookie: adminCookies },
+  const unavailableExport = await fetch(`${base}/settings/exports/keepsake.pdf`, {
+    headers: { Cookie: accountCookies },
   });
   assert.equal(unavailableExport.status, 503);
   assert.match(unavailableExport.headers.get('cache-control'), /no-store/);
@@ -137,7 +151,7 @@ test('PWA shell is public while private snapshots and exports keep both auth bou
     method: 'POST',
     redirect: 'manual',
     headers: {
-      Cookie: adminCookies,
+      Cookie: accountCookies,
       'Content-Type': 'application/x-www-form-urlencoded',
     },
     body: new URLSearchParams({ _csrf: csrfToken }),
@@ -146,5 +160,5 @@ test('PWA shell is public while private snapshots and exports keep both auth bou
   assert.equal(relock.headers.get('clear-site-data'), '"cache", "storage"');
   assert.equal(relock.headers.get('x-gbagl-clear-private-data'), '1');
   assert.match(relock.headers.get('set-cookie'), /gbagl_unlocked=.*Max-Age=0/);
-  assert.match(relock.headers.get('set-cookie'), /gbagl_admin=.*Max-Age=0/);
+  assert.match(relock.headers.get('set-cookie'), /gbagl_account=.*Max-Age=0/);
 });

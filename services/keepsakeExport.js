@@ -27,19 +27,20 @@ const EXPORT_QUERIES = Object.freeze({
              ) ORDER BY setting_key`,
   timeline: `SELECT id, display_order, milestone_date, title, description, emoji, photo
              FROM timeline_milestones ORDER BY display_order, id`,
-  journals: `SELECT id, milestone_id, title, body,
+  journals: `SELECT id, milestone_id, title, body, display_order,
                     DATE_FORMAT(entry_date, '%Y-%m-%d') AS entry_date
-             FROM journal_entries ORDER BY entry_date, id`,
+             FROM journal_entries ORDER BY display_order, entry_date, id`,
   bucket: `SELECT id, title, description, category,
                   DATE_FORMAT(target_date, '%Y-%m-%d') AS target_date,
                   DATE_FORMAT(completed_at, '%Y-%m-%d') AS completed_at,
-                  memory
-           FROM bucket_items WHERE completed_at IS NOT NULL ORDER BY completed_at, id`,
+                  memory, display_order
+           FROM bucket_items WHERE completed_at IS NOT NULL
+           ORDER BY display_order, completed_at, id`,
   events: `SELECT id, title,
                   DATE_FORMAT(event_at, '%Y-%m-%dT%H:%i:%sZ') AS event_at,
                   DATE_FORMAT(reminder_at, '%Y-%m-%dT%H:%i:%sZ') AS reminder_at,
-                  notes, is_completed
-           FROM shared_events ORDER BY event_at, id`,
+                  notes, is_completed, display_order
+           FROM shared_events ORDER BY display_order, event_at, id`,
   albums: `SELECT id, title, description,
                   DATE_FORMAT(album_date, '%Y-%m-%d') AS album_date,
                   display_order

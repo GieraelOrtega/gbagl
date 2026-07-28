@@ -14,10 +14,10 @@
 
 const milestones = [
   {
-    date:        'Coming Soon',           // ✏️ e.g. 'June 2024'
-    title:       'The Day We Met',
-    description: 'Every love story has a first chapter. Ours started right here. ✨',
-    emoji:       '✨',
+    date:        'December 8, 2025',
+    title:       'Officially Us',
+    description: 'The day we officially became boyfriend and girlfriend — the start of our great life together. 💕',
+    emoji:       '💕',
     photo:       null,                    // ✏️ e.g. 'images/milestone-met.jpg'
   },
   {

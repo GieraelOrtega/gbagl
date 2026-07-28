@@ -9,11 +9,6 @@
     <input class="form-input" id="<%= prefix %>-date" name="album_date" type="date"
            value="<%= album.album_date || '' %>" />
   </div>
-  <div class="form-group">
-    <label class="form-label" for="<%= prefix %>-order">Display order</label>
-    <input class="form-input" id="<%= prefix %>-order" name="display_order" type="number"
-           min="0" max="100000" value="<%= album.display_order || 0 %>" required />
-  </div>
 </div>
 <div class="form-group">
   <label class="form-label" for="<%= prefix %>-description">Description</label>
