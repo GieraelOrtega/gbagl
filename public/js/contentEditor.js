@@ -12,6 +12,13 @@ document.addEventListener('DOMContentLoaded', () => {
     );
   }
 
+  function submittedItems(group, list) {
+    if (list.dataset.reorderSubmit === 'list') {
+      return Array.from(list.querySelectorAll(':scope > [data-reorder-item]'));
+    }
+    return itemsFor(group);
+  }
+
   function snapshot(group) {
     return listsFor(group).map((list) => ({
       list,
@@ -101,7 +108,7 @@ document.addEventListener('DOMContentLoaded', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           _csrf: csrfToken,
-          ids: itemsFor(group).map((item) => item.dataset.reorderId),
+          ids: submittedItems(group, list).map((item) => item.dataset.reorderId),
         }),
       });
       if (!response.ok) throw new Error(`Order request failed with ${response.status}`);

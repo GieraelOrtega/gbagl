@@ -14,6 +14,7 @@ const {
 
 test('PWA policy separates public shell, read-only snapshots, and protected media', () => {
   assert.ok(PUBLIC_SHELL_PATHS.includes('/offline.html'));
+  assert.ok(PUBLIC_SHELL_PATHS.includes('/css/style.css?v=completed-bucket-1'));
   assert.ok(PUBLIC_SHELL_PATHS.includes('/icons/icon-512.png?v=gk-consolidation-1'));
   assert.ok(PUBLIC_SHELL_PATHS.includes('/js/theme.js'));
   assert.equal(PUBLIC_SHELL_PATHS.some((item) => item.startsWith('/settings')), false);
@@ -70,7 +71,7 @@ test('service worker implements version cleanup, auth purge, and explicit clear 
     path.join(__dirname, '..', 'public', 'service-worker.js'),
     'utf8',
   );
-  assert.match(source, /gbagl-public-\$\{CACHE_VERSION\}/);
+  assert.match(source, /gbagl-public-\$\{PUBLIC_CACHE_VERSION\}/);
   assert.match(source, /gbagl-private-/);
   assert.match(source, /response\.status === 401 \|\| response\.status === 403/);
   assert.match(source, /X-GBAGL-Authorization-Lost/);
@@ -82,6 +83,7 @@ test('service worker implements version cleanup, auth purge, and explicit clear 
   assert.match(source, /mutationResponse/);
   assert.match(source, /url\.pathname !== '\/lock'/);
   assert.match(source, /authorizePrivateCache/);
+  assert.match(source, /const PUBLIC_CACHE_VERSION = 'v4'/);
   assert.match(source, /const CACHE_VERSION = 'v3'/);
   assert.match(source, /url\.pathname\}\$\{url\.search/);
   assert.doesNotMatch(source, /\/settings\/|feed\.json|backups/);

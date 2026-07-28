@@ -283,7 +283,11 @@ function createApp(config = loadConfig(), services = {}) {
   app.use('/', createIndexRouter(uploadConfig, accountAuth));
   app.use('/adventure', accountAuth.requireMemberWrite, require('./routes/adventure'));
   app.use('/timeline', accountAuth.requireMemberWrite, require('./routes/timeline'));
-  app.use('/bucket', accountAuth.requireMemberWrite, createBucketRouter());
+  app.use(
+    '/bucket',
+    accountAuth.requireMemberWrite,
+    createBucketRouter(services.bucketDependencies),
+  );
   app.use('/reminders', accountAuth.requireMemberWrite, createRemindersRouter());
   app.use('/albums', accountAuth.requireMemberWrite, createAlbumsRouter(uploadConfig));
   app.use('/journal', accountAuth.requireMemberWrite, createJournalRouter(uploadConfig));

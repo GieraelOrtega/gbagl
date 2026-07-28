@@ -1,8 +1,9 @@
-importScripts('/js/pwaPolicy.js?v=gk-consolidation-1');
+importScripts('/js/pwaPolicy.js?v=completed-bucket-1');
 
+const PUBLIC_CACHE_VERSION = 'v4';
 const CACHE_VERSION = 'v3';
 const STATE_SCHEMA_VERSION = 2;
-const PUBLIC_CACHE = `gbagl-public-${CACHE_VERSION}`;
+const PUBLIC_CACHE = `gbagl-public-${PUBLIC_CACHE_VERSION}`;
 const PRIVATE_CACHE_ROOT = 'gbagl-private-';
 const PRIVATE_CACHE_PREFIX = `${PRIVATE_CACHE_ROOT}${CACHE_VERSION}-`;
 const STATE_CACHE_ROOT = 'gbagl-state-';

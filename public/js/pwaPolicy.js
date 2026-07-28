@@ -8,10 +8,10 @@
   const MEDIA_OPT_IN = 'media-v1';
   const PUBLIC_SHELL_PATHS = Object.freeze([
     '/offline.html',
-    '/css/style.css?v=gk-consolidation-1',
+    '/css/style.css?v=completed-bucket-1',
     '/js/lock.js',
     '/js/pwa.js?v=gk-consolidation-1',
-    '/js/pwaPolicy.js?v=gk-consolidation-1',
+    '/js/pwaPolicy.js?v=completed-bucket-1',
     '/js/theme.js',
     '/manifest.webmanifest?v=gk-consolidation-1',
     '/icons/icon-192.png?v=gk-consolidation-1',

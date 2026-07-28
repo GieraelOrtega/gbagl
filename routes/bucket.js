@@ -5,8 +5,11 @@ const {
   publicOrderError,
   reorderCollection,
 } = require('../lib/contentOrder');
+const { localDateValue } = require('../lib/dates');
+const { formatDate } = require('../lib/presentation');
 const { positiveId } = require('../lib/validation');
 const {
+  validateBucketCompletion,
   validateBucketItem,
   validateBucketMemory,
   validateVote,
@@ -17,19 +20,26 @@ function redirectMessage(res, type, message) {
   return res.redirect(303, `/bucket?${new URLSearchParams({ [type]: message })}`);
 }
 
-function createBucketRouter() {
+function createBucketRouter({
+  currentDate = () => new Date(),
+  databaseAvailable = isDbAvailable,
+  databasePool = getPool,
+} = {}) {
   const router = express.Router();
 
   router.get('/', async (req, res) => {
-    let items = [];
+    let activeItems = [];
+    let completedItems = [];
     let labels = { partner_one: 'Partner One', partner_two: 'Partner Two' };
+    let today = localDateValue(currentDate(), 'UTC');
     let dbError = null;
-    if (!isDbAvailable()) {
+    if (!databaseAvailable()) {
       dbError = 'The bucket list is temporarily unavailable because the database is offline.';
     } else {
       try {
+        const pool = databasePool();
         const [[rows], [settings]] = await Promise.all([
-          getPool().execute(
+          pool.execute(
             `SELECT i.id, i.title, i.description, i.category,
                     DATE_FORMAT(i.target_date, '%Y-%m-%d') AS target_date,
                     i.display_order,
@@ -43,15 +53,22 @@ function createBucketRouter() {
              FROM bucket_items i
              LEFT JOIN bucket_votes v ON v.item_id = i.id
              GROUP BY i.id
-             ORDER BY i.display_order, i.completed_at IS NOT NULL, i.is_favorite DESC,
-                      i.target_date IS NULL, i.target_date, i.id DESC`,
+             ORDER BY i.completed_at IS NOT NULL,
+                      CASE WHEN i.completed_at IS NULL THEN i.display_order END,
+                      CASE WHEN i.completed_at IS NULL THEN i.is_favorite END DESC,
+                      CASE WHEN i.completed_at IS NULL THEN i.target_date IS NULL END,
+                      CASE WHEN i.completed_at IS NULL THEN i.target_date END,
+                      CASE WHEN i.completed_at IS NOT NULL THEN i.completed_at END DESC,
+                      CASE WHEN i.completed_at IS NOT NULL THEN i.display_order END,
+                      i.id DESC`,
           ),
-          getPool().execute(
+          pool.execute(
             `SELECT setting_key, setting_value FROM site_settings
-             WHERE setting_key IN ('partner_one_name', 'partner_two_name')`,
+             WHERE setting_key IN ('partner_one_name', 'partner_two_name', 'timezone')`,
           ),
         ]);
-        items = rows;
+        activeItems = rows.filter((item) => !item.completed_at);
+        completedItems = rows.filter((item) => item.completed_at);
         const values = Object.fromEntries(
           settings.map((row) => [row.setting_key, row.setting_value]),
         );
@@ -59,6 +76,7 @@ function createBucketRouter() {
           partner_one: values.partner_one_name || labels.partner_one,
           partner_two: values.partner_two_name || labels.partner_two,
         };
+        today = localDateValue(currentDate(), values.timezone || 'UTC');
       } catch (error) {
         console.error('Bucket list load failed:', error.message);
         dbError = 'The bucket list could not be loaded.';
@@ -68,8 +86,11 @@ function createBucketRouter() {
     return res.render('bucket', {
       title: 'Our Bucket List | GBAGL',
       page: 'bucket',
-      items,
+      activeItems,
+      completedItems,
+      formatDate,
       labels,
+      today,
       dbError,
       message: req.query.message || null,
       error: req.query.error || null,
@@ -77,11 +98,12 @@ function createBucketRouter() {
   });
 
   router.post('/', async (req, res) => {
-    if (!isDbAvailable()) return redirectMessage(res, 'error', 'Database unavailable.');
+    if (!databaseAvailable()) return redirectMessage(res, 'error', 'Database unavailable.');
     try {
+      const pool = databasePool();
       const item = validateBucketItem(req.body);
-      const displayOrder = await nextDisplayOrder(getPool(), 'bucket');
-      await getPool().execute(
+      const displayOrder = await nextDisplayOrder(pool, 'bucket');
+      await pool.execute(
         `INSERT INTO bucket_items
           (title, description, category, target_date, display_order)
          VALUES (?, ?, ?, ?, ?)`,
@@ -101,9 +123,9 @@ function createBucketRouter() {
   });
 
   router.post('/reorder', async (req, res) => {
-    if (!isDbAvailable()) return res.status(503).json({ error: 'Database unavailable' });
+    if (!databaseAvailable()) return res.status(503).json({ error: 'Database unavailable' });
     try {
-      await reorderCollection(getPool(), 'bucket', req.body.ids);
+      await reorderCollection(databasePool(), 'bucketActive', req.body.ids);
       return res.status(204).end();
     } catch (error) {
       console.error('Bucket reorder failed:', error.message);
@@ -113,10 +135,10 @@ function createBucketRouter() {
   });
 
   router.post('/:id', async (req, res) => {
-    if (!isDbAvailable()) return redirectMessage(res, 'error', 'Database unavailable.');
+    if (!databaseAvailable()) return redirectMessage(res, 'error', 'Database unavailable.');
     try {
       const item = validateBucketItem(req.body);
-      const [result] = await getPool().execute(
+      const [result] = await databasePool().execute(
         `UPDATE bucket_items
          SET title = ?, description = ?, category = ?, target_date = ?
          WHERE id = ?`,
@@ -137,9 +159,9 @@ function createBucketRouter() {
   });
 
   router.post('/:id/delete', async (req, res) => {
-    if (!isDbAvailable()) return redirectMessage(res, 'error', 'Database unavailable.');
+    if (!databaseAvailable()) return redirectMessage(res, 'error', 'Database unavailable.');
     try {
-      const [result] = await getPool().execute(
+      const [result] = await databasePool().execute(
         'DELETE FROM bucket_items WHERE id = ?',
         [positiveId(req.params.id)],
       );
@@ -152,11 +174,11 @@ function createBucketRouter() {
   });
 
   router.post('/:id/vote', async (req, res) => {
-    if (!isDbAvailable()) return redirectMessage(res, 'error', 'Database unavailable.');
+    if (!databaseAvailable()) return redirectMessage(res, 'error', 'Database unavailable.');
     try {
       const id = positiveId(req.params.id);
       const { voterSlot, vote } = validateVote(req.body);
-      await toggleVote(getPool(), id, voterSlot, vote);
+      await toggleVote(databasePool(), id, voterSlot, vote);
       return redirectMessage(res, 'message', 'Vote updated.');
     } catch (error) {
       console.error('Bucket vote failed:', error.message);
@@ -165,9 +187,9 @@ function createBucketRouter() {
   });
 
   router.post('/:id/favorite', async (req, res) => {
-    if (!isDbAvailable()) return redirectMessage(res, 'error', 'Database unavailable.');
+    if (!databaseAvailable()) return redirectMessage(res, 'error', 'Database unavailable.');
     try {
-      const [result] = await getPool().execute(
+      const [result] = await databasePool().execute(
         'UPDATE bucket_items SET is_favorite = NOT is_favorite WHERE id = ?',
         [positiveId(req.params.id)],
       );
@@ -180,13 +202,11 @@ function createBucketRouter() {
   });
 
   router.post('/:id/completion', async (req, res) => {
-    if (!isDbAvailable()) return redirectMessage(res, 'error', 'Database unavailable.');
+    if (!databaseAvailable()) return redirectMessage(res, 'error', 'Database unavailable.');
     try {
       const id = positiveId(req.params.id);
-      const completedAt = req.body.completed === '1'
-        ? require('../lib/validation').isoDate(req.body.completed_at, 'Completion date')
-        : null;
-      const [result] = await getPool().execute(
+      const completedAt = validateBucketCompletion(req.body);
+      const [result] = await databasePool().execute(
         'UPDATE bucket_items SET completed_at = ? WHERE id = ?',
         [completedAt, id],
       );
@@ -199,10 +219,10 @@ function createBucketRouter() {
   });
 
   router.post('/:id/memory', async (req, res) => {
-    if (!isDbAvailable()) return redirectMessage(res, 'error', 'Database unavailable.');
+    if (!databaseAvailable()) return redirectMessage(res, 'error', 'Database unavailable.');
     try {
       const memory = validateBucketMemory(req.body);
-      const [result] = await getPool().execute(
+      const [result] = await databasePool().execute(
         `UPDATE bucket_items SET memory = ?
          WHERE id = ? AND completed_at IS NOT NULL`,
         [memory || null, positiveId(req.params.id)],
