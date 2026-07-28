@@ -1,51 +1,8 @@
 (function initializePwa() {
-  let deferredInstallPrompt = null;
-
-  function installButtons() {
-    return document.querySelectorAll('[data-install-app]');
-  }
-
   function privateMediaUrls() {
     return Array.from(document.querySelectorAll('[data-private-media]'))
       .map((element) => element.currentSrc || element.src)
       .filter(Boolean);
-  }
-
-  function isInstalled() {
-    return window.matchMedia?.('(display-mode: standalone)')?.matches
-      || navigator.standalone === true;
-  }
-
-  function setInstallVisible(visible) {
-    installButtons().forEach((button) => {
-      button.hidden = !visible;
-    });
-    document.querySelectorAll('[data-pwa-controls]').forEach((controls) => {
-      controls.hidden = !visible;
-    });
-  }
-
-  function installInstructions() {
-    const userAgent = navigator.userAgent || '';
-    const platform = navigator.platform || '';
-    const isIpad = platform === 'MacIntel' && navigator.maxTouchPoints > 1;
-    if (/iPhone|iPad|iPod/.test(userAgent) || isIpad) {
-      return 'On iPhone or iPad: tap Share, then choose Add to Home Screen.';
-    }
-    if (/Mac/.test(platform) || /Macintosh/.test(userAgent)) {
-      return 'On Mac: in Safari choose File > Add to Dock. In Chrome or Edge, use Install in the address bar or browser menu.';
-    }
-    if (/Win/.test(platform) || /Windows/.test(userAgent)) {
-      return 'On Windows: in Edge or Chrome, choose Install in the address bar or browser menu.';
-    }
-    return 'Open your browser menu and choose Install app or Add to Home Screen.';
-  }
-
-  function showInstallHelp() {
-    document.querySelectorAll('[data-install-help]').forEach((help) => {
-      help.textContent = installInstructions();
-      help.hidden = false;
-    });
   }
 
   function clearReminderDedupe() {
@@ -150,20 +107,11 @@
     });
   }
 
-  window.addEventListener('beforeinstallprompt', (event) => {
-    event.preventDefault();
-    deferredInstallPrompt = event;
-  });
-  window.addEventListener('appinstalled', () => {
-    deferredInstallPrompt = null;
-    setInstallVisible(false);
-  });
   window.addEventListener('online', updateNetworkStatus);
   window.addEventListener('offline', updateNetworkStatus);
 
   document.addEventListener('DOMContentLoaded', () => {
     updateNetworkStatus();
-    setInstallVisible(!isInstalled());
     if (document.body.hasAttribute('data-locked-state')) {
       void clearPrivateData().catch((error) => {
         console.error('GBAGL locked-state cleanup failed:', error);
@@ -173,18 +121,6 @@
         console.error('GBAGL private cache authorization failed:', error);
       });
     }
-    installButtons().forEach((button) => {
-      button.addEventListener('click', async () => {
-        if (!deferredInstallPrompt) {
-          showInstallHelp();
-          return;
-        }
-        await deferredInstallPrompt.prompt();
-        const choice = await deferredInstallPrompt.userChoice;
-        deferredInstallPrompt = null;
-        if (choice.outcome !== 'accepted') showInstallHelp();
-      });
-    });
     document.querySelectorAll('form[action="/lock"]').forEach((form) => {
       form.addEventListener('submit', (event) => {
         event.preventDefault();

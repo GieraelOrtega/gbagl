@@ -1,0 +1,17 @@
+<div class="form-group">
+  <label class="form-label" for="<%= prefix %>-photo">
+    Photo<%= required ? '' : ' (optional)' %>
+  </label>
+  <input class="form-input" id="<%= prefix %>-photo" name="photo" type="file"
+         accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif"
+         <%= required ? 'required' : '' %> />
+  <p class="form-help">
+    JPEG, PNG, WebP, HEIC, or HEIF up to 20 MB. Apple HEIC/HEIF photos are
+    converted to JPEG before storage.
+  </p>
+</div>
+<div class="form-group">
+  <label class="form-label" for="<%= prefix %>-caption">Photo caption</label>
+  <input class="form-input" id="<%= prefix %>-caption" name="photo_caption"
+         maxlength="1000" value="<%= caption || '' %>" />
+</div>

@@ -18,15 +18,18 @@ const EVENT_SELECT = `
          notes, display_order, is_completed, reminder_dismissed
   FROM shared_events`;
 
-async function loadTimezone() {
-  const [rows] = await getPool().execute(
+async function loadTimezone(pool = getPool()) {
+  const [rows] = await pool.execute(
     "SELECT setting_value FROM site_settings WHERE setting_key = 'timezone'",
   );
   return rows[0]?.setting_value || 'UTC';
 }
 
 function redirectMessage(res, type, message) {
-  return res.redirect(303, `/reminders?${new URLSearchParams({ [type]: message })}`);
+  return res.redirect(
+    303,
+    `/adventure?${new URLSearchParams({ [type]: message })}#events`,
+  );
 }
 
 async function eventValues(body) {
@@ -41,54 +44,39 @@ async function eventValues(body) {
   };
 }
 
+async function loadEvents(pool = getPool()) {
+  const [[upcomingRows], [pastRows], timeZone] = await Promise.all([
+    pool.execute(
+      `${EVENT_SELECT} WHERE event_at >= UTC_TIMESTAMP()
+       ORDER BY display_order, event_at, id`,
+    ),
+    pool.execute(
+      `${EVENT_SELECT} WHERE event_at < UTC_TIMESTAMP()
+       ORDER BY display_order, event_at DESC, id DESC`,
+    ),
+    loadTimezone(pool),
+  ]);
+  const withInputs = (event) => ({
+    ...event,
+    event_input: localInputValue(event.event_at, timeZone),
+    reminder_input: localInputValue(event.reminder_at, timeZone),
+  });
+  return {
+    upcoming: upcomingRows.map(withInputs),
+    past: pastRows.map(withInputs),
+    timeZone,
+  };
+}
+
 function createRemindersRouter() {
   const router = express.Router();
 
-  router.get('/', async (req, res) => {
-    let upcoming = [];
-    let past = [];
-    let timeZone = 'UTC';
-    let dbError = null;
-    if (!isDbAvailable()) {
-      dbError = 'Events are temporarily unavailable because the database is offline.';
-    } else {
-      try {
-        const [[upcomingRows], [pastRows], zone] = await Promise.all([
-          getPool().execute(
-            `${EVENT_SELECT} WHERE event_at >= UTC_TIMESTAMP()
-            ORDER BY display_order, event_at, id`,
-          ),
-          getPool().execute(
-            `${EVENT_SELECT} WHERE event_at < UTC_TIMESTAMP()
-            ORDER BY display_order, event_at DESC, id DESC`,
-          ),
-          loadTimezone(),
-        ]);
-        timeZone = zone;
-        const withInputs = (event) => ({
-          ...event,
-          event_input: localInputValue(event.event_at, timeZone),
-          reminder_input: localInputValue(event.reminder_at, timeZone),
-        });
-        upcoming = upcomingRows.map(withInputs);
-        past = pastRows.map(withInputs);
-      } catch (error) {
-        console.error('Reminder page load failed:', error.message);
-        dbError = 'Events could not be loaded.';
-      }
-    }
-    if (!dbError) res.allowPrivateSnapshot?.();
-    return res.render('reminders', {
-      title: 'Events & Reminders | GBAGL',
-      page: 'reminders',
-      upcoming,
-      past,
-      timeZone,
-      formatDateTime,
-      dbError,
-      message: req.query.message || null,
-      error: req.query.error || null,
-    });
+  router.get('/', (req, res) => {
+    const query = new URLSearchParams();
+    if (req.query.message) query.set('message', String(req.query.message));
+    if (req.query.error) query.set('error', String(req.query.error));
+    const suffix = query.size ? `?${query}` : '';
+    return res.redirect(302, `/adventure${suffix}#events`);
   });
 
   router.post('/', async (req, res) => {
@@ -169,67 +157,11 @@ function createRemindersRouter() {
     }
   });
 
-  router.get('/feed.json', async (req, res) => {
-    res.set('Cache-Control', 'no-store');
-    if (!isDbAvailable()) {
-      return res.status(503).json({ error: 'Reminders are unavailable' });
-    }
-    try {
-      const [[rows], timeZone] = await Promise.all([
-        getPool().execute(
-          `${EVENT_SELECT}
-           WHERE reminder_at IS NOT NULL
-             AND reminder_dismissed = FALSE
-             AND is_completed = FALSE
-             AND reminder_at <= UTC_TIMESTAMP()
-             AND event_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 DAY)
-           ORDER BY reminder_at
-           LIMIT 25`,
-        ),
-        loadTimezone(),
-      ]);
-      return res.json({
-        timeZone,
-        reminders: rows.map((row) => ({
-          id: row.id,
-          title: row.title,
-          eventAt: row.event_at,
-          reminderAt: row.reminder_at,
-          url: `/reminders#event-${row.id}`,
-        })),
-      });
-    } catch (error) {
-      console.error('Reminder feed failed:', error.message);
-      return res.status(500).json({ error: 'Reminders could not be loaded' });
-    }
-  });
-
-  router.post('/:id/dismiss', async (req, res) => {
-    if (!isDbAvailable()) {
-      return res.redirect(303, '/reminders?error=Database+unavailable.');
-    }
-    try {
-      const [result] = await getPool().execute(
-        `UPDATE shared_events SET reminder_dismissed = TRUE
-         WHERE id = ? AND reminder_at IS NOT NULL`,
-        [positiveId(req.params.id)],
-      );
-      if (result.affectedRows !== 1) throw new Error('Reminder not found');
-      return res.redirect(303, '/reminders');
-    } catch (error) {
-      console.error('Reminder dismiss failed:', error.message);
-      return res.redirect(
-        303,
-        `/reminders?${new URLSearchParams({ error: error.message })}`,
-      );
-    }
-  });
-
   router.get('/:id.ics', async (req, res) => {
     if (!isDbAvailable()) {
       return res.status(503).render('error', {
         title: 'Calendar unavailable | GBAGL',
-        page: 'reminders',
+        page: 'adventure',
         status: 503,
         message: 'The database is unavailable.',
       });
@@ -258,7 +190,7 @@ function createRemindersRouter() {
       console.error('ICS download failed:', error.message);
       return res.status(404).render('error', {
         title: 'Event not found | GBAGL',
-        page: 'reminders',
+        page: 'adventure',
         status: 404,
         message: 'That event does not exist.',
       });
@@ -268,4 +200,9 @@ function createRemindersRouter() {
   return router;
 }
 
-module.exports = { EVENT_SELECT, createRemindersRouter, loadTimezone };
+module.exports = {
+  EVENT_SELECT,
+  createRemindersRouter,
+  loadEvents,
+  loadTimezone,
+};

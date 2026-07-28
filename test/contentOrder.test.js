@@ -73,10 +73,10 @@ test('reordering validates the complete collection and commits sequential positi
   );
 });
 
-test('photo ordering is scoped to one album and stale sequences roll back', async () => {
+test('photo ordering is scoped to one Journal moment and stale sequences roll back', async () => {
   const scoped = reorderPool([{ id: 8 }, { id: 9 }]);
-  await reorderCollection(scoped.pool, 'photos', ['9', '8'], '4');
-  assert.match(scoped.state.updates[0].sql, /album_id = \?/);
+  await reorderCollection(scoped.pool, 'journalPhotos', ['9', '8'], '4');
+  assert.match(scoped.state.updates[0].sql, /journal_entry_id = \?/);
   assert.deepEqual(scoped.state.updates[0].params, [0, 9, 4]);
 
   const stale = reorderPool([{ id: 1 }, { id: 2 }]);
@@ -97,8 +97,8 @@ test('new content appends after the current maximum order', async () => {
       return [[{ next_order: 7 }]];
     },
   };
-  assert.equal(await nextDisplayOrder(pool, 'photos', 3), 7);
-  assert.match(calls[0].sql, /album_id = \?/);
+  assert.equal(await nextDisplayOrder(pool, 'journalPhotos', 3), 7);
+  assert.match(calls[0].sql, /journal_entry_id = \?/);
   assert.deepEqual(calls[0].params, [3]);
 });
 

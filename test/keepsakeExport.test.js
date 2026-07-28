@@ -20,7 +20,7 @@ const {
 
 function sampleExportData() {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAt: '2026-07-20T05:00:00.000Z',
     settings: {
       partner_one_name: 'Alex',
@@ -45,6 +45,16 @@ function sampleExportData() {
       title: 'Looking back',
       body: 'Still smiling.',
       entry_date: '2026-01-02',
+      photos: [{
+        id: 6,
+        milestone_id: 1,
+        caption: 'At the water',
+        photo_date: '2025-07-04',
+        display_order: 0,
+        media_type: 'image/webp',
+        archive_path: 'media/journal/000002/photo-000006.webp',
+        media_status: 'missing-or-unreadable',
+      }],
     }],
     completedBucketItems: [{
       id: 3,
@@ -63,33 +73,15 @@ function sampleExportData() {
       notes: 'Window table',
       is_completed: 0,
     }],
-    albums: [{
-      id: 5,
-      title: 'Summer',
-      description: 'Warm days',
-      album_date: '2025-07-04',
-      display_order: 0,
-    }],
-    photos: [{
-      id: 6,
-      album_id: 5,
-      milestone_id: 1,
-      caption: 'At the water',
-      photo_date: '2025-07-04',
-      display_order: 0,
-      media_type: 'image/webp',
-      archive_path: 'media/albums/000005/photo-000006.webp',
-      media_status: 'missing-or-unreadable',
-    }],
   };
 }
 
 test('generated ZIP entry names are deterministic and reject zip-slip input', () => {
   assert.equal(
-    mediaArchiveName({ id: 6, album_id: 5, media_type: 'image/png' }),
-    'media/albums/000005/photo-000006.png',
+    mediaArchiveName({ id: 6, journal_entry_id: 2, media_type: 'image/png' }),
+    'media/journal/000002/photo-000006.png',
   );
-  assert.equal(safeArchiveName('media/albums/000005/photo-000006.png'), 'media/albums/000005/photo-000006.png');
+  assert.equal(safeArchiveName('media/journal/000002/photo-000006.png'), 'media/journal/000002/photo-000006.png');
   for (const invalid of ['../secret', '/absolute', 'media\\photo.jpg', 'media//photo.jpg']) {
     assert.throws(() => safeArchiveName(invalid), /Invalid generated archive/);
   }
@@ -100,14 +92,14 @@ test('printable HTML and ZIP contain portable keepsake content without server pa
   const html = buildPrintableHtml(data);
   assert.match(html, /Alex &amp; Jordan/);
   assert.match(html, /Sunset together/);
-  assert.match(html, /media\/albums\/000005\/photo-000006\.webp/);
+  assert.match(html, /media\/journal\/000002\/photo-000006\.webp/);
   assert.doesNotMatch(html, /runtime[\\/]uploads|storage_name|DB_PASSWORD/);
 
   const zip = await buildZip(data, [{
-    archivePath: data.photos[0].archive_path,
+    archivePath: data.journals[0].photos[0].archive_path,
     buffer: null,
-    kind: 'album',
-    record: { id: 6 },
+    kind: 'journal-photo',
+    record: { id: 6, journal_entry_id: 2 },
     status: 'missing-or-unreadable',
   }]);
   assert.equal(zip.subarray(0, 2).toString('ascii'), 'PK');
@@ -127,7 +119,7 @@ test('invalid media does not consume the validated aggregate byte budget', async
     const storageName = `${String(index + 1).padStart(32, '0')}.jpg`;
     buffers.set(storageName, index === 5 ? corrupt : valid);
     return {
-      album_id: 5,
+      journal_entry_id: 2,
       id: index + 1,
       media_type: 'image/jpeg',
       storage_name: storageName,
@@ -175,7 +167,7 @@ test('invalid media does not consume the validated aggregate byte budget', async
     const storageName = `${String(index + 100).padStart(32, '0')}.jpg`;
     corruptBuffers.set(storageName, corruptCandidate);
     return {
-      album_id: 5,
+      journal_entry_id: 2,
       id: index + 100,
       media_type: 'image/jpeg',
       storage_name: storageName,
@@ -206,17 +198,22 @@ test('invalid media does not consume the validated aggregate byte budget', async
 
 test('PDF output has a valid signature and relationship keepsake metadata', async () => {
   const pdf = await buildPdf(sampleExportData(), [{
-    archivePath: 'media/albums/000005/photo-000006.webp',
+    archivePath: 'media/journal/000002/photo-000006.webp',
     buffer: Buffer.from('unused webp placeholder'),
-    kind: 'album',
+    kind: 'journal-photo',
     mediaType: 'image/webp',
-    record: { id: 6, album_id: 5, caption: 'At the water', media_type: 'image/webp' },
+    record: {
+      id: 6,
+      journal_entry_id: 2,
+      caption: 'At the water',
+      media_type: 'image/webp',
+    },
     status: 'included',
   }]);
   assert.equal(pdf.subarray(0, 5).toString('ascii'), '%PDF-');
   const text = pdf.toString('latin1');
   assert.match(text, /GBAGL Relationship Keepsake/);
-  assert.match(text, /Timeline, journal, memories, events, and albums/);
+  assert.match(text, /Timeline, journal moments and photos, bucket memories, and events/);
   assert.match(text, /\/Type \/Page/);
   assert.equal((text.match(/\/Type \/Page\b/g) || []).length, 1);
 });
@@ -244,11 +241,11 @@ test('PDF media preparation enforces aggregate pixel and image budgets', async (
     width: 16,
   });
   const media = [1, 2, 3].map((id) => ({
-    archivePath: `media/albums/000005/photo-${String(id).padStart(6, '0')}.png`,
+    archivePath: `media/journal/000002/photo-${String(id).padStart(6, '0')}.png`,
     buffer: compressed,
-    kind: 'album',
+    kind: 'journal-photo',
     mediaType: 'image/png',
-    record: { album_id: 5, id, media_type: 'image/png' },
+    record: { journal_entry_id: 2, id, media_type: 'image/png' },
     status: 'included',
   }));
 
@@ -277,12 +274,12 @@ test('PDF decoded-byte budget skips excess large PNGs before preparation', async
   compressedFixture.writeUInt32BE(3500, 16);
   compressedFixture.writeUInt32BE(3000, 20);
   const media = Array.from({ length: 4 }, (_, index) => ({
-    archivePath: `media/albums/000005/photo-${String(index + 1).padStart(6, '0')}.png`,
+    archivePath: `media/journal/000002/photo-${String(index + 1).padStart(6, '0')}.png`,
     buffer: compressedFixture,
-    kind: 'album',
+    kind: 'journal-photo',
     mediaType: 'image/png',
     record: {
-      album_id: 5,
+      journal_entry_id: 2,
       caption: `Large PNG ${index + 1}`,
       id: index + 1,
       media_type: 'image/png',
@@ -381,12 +378,12 @@ test('PDF continues when a header-valid JPEG is rejected by PDFKit embedding', a
   ]);
 
   const pdf = await buildPdf(sampleExportData(), [{
-    archivePath: 'media/albums/000005/photo-000006.jpg',
+    archivePath: 'media/journal/000002/photo-000006.jpg',
     buffer: craftedJpeg,
-    kind: 'album',
+    kind: 'journal-photo',
     mediaType: 'image/jpeg',
     record: {
-      album_id: 5,
+      journal_entry_id: 2,
       caption: 'Crafted JPEG',
       id: 6,
       media_type: 'image/jpeg',

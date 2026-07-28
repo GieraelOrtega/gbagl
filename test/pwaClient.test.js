@@ -15,13 +15,8 @@ function deferred() {
 }
 
 function createClientHarness(deleteImpl, {
-  displayStandalone = false,
-  maxTouchPoints = 0,
   offlineSnapshot = false,
   onLine = true,
-  platform = '',
-  standalone = false,
-  userAgent = '',
 } = {}) {
   const documentListeners = new Map();
   const formListeners = new Map();
@@ -42,15 +37,6 @@ function createClientHarness(deleteImpl, {
   };
   const statusContainer = { hidden: true };
   const announcer = { textContent: '' };
-  const installListeners = new Map();
-  const installButton = {
-    hidden: false,
-    addEventListener(type, listener) {
-      installListeners.set(type, listener);
-    },
-  };
-  const installHelp = { hidden: true, textContent: '' };
-  const pwaControls = { hidden: false };
   const privateMedia = {
     currentSrc: '',
     src: 'https://gba.gl/media/home-photo',
@@ -74,9 +60,6 @@ function createClientHarness(deleteImpl, {
       if (selector === '[data-network-status]') return [status];
       if (selector === '[data-network-status-container]') return [statusContainer];
       if (selector === '[data-network-status-announcer]') return [announcer];
-      if (selector === '[data-install-app]') return [installButton];
-      if (selector === '[data-install-help]') return [installHelp];
-      if (selector === '[data-pwa-controls]') return [pwaControls];
       if (selector === '[data-private-media]') return [privateMedia];
       return [];
     },
@@ -114,15 +97,10 @@ function createClientHarness(deleteImpl, {
       delete: deleteImpl,
     },
     location: { href: 'https://gba.gl/' },
-    matchMedia: () => ({ matches: displayStandalone }),
   };
   const navigator = {
-    maxTouchPoints,
     onLine,
-    platform,
     serviceWorker,
-    standalone,
-    userAgent,
   };
   const context = vm.createContext({
     console: { error() {}, warn() {} },
@@ -144,10 +122,7 @@ function createClientHarness(deleteImpl, {
   documentListeners.get('DOMContentLoaded')();
   return {
     lockSubmit: formListeners.get('submit'),
-    clickInstall: () => installListeners.get('click')(),
     dispatchWindow: (type, event) => windowListeners.get(type)(event),
-    installButton,
-    installHelp,
     messages,
     navigator,
     announcer,
@@ -222,66 +197,6 @@ test('private home media is submitted for caching after authorization', async ()
     Array.from(authorization.mediaUrls),
     ['https://gba.gl/media/home-photo'],
   );
-});
-
-test('Install Now stays visible and gives iPhone, iPad, Mac, and Windows guidance', async (t) => {
-  const platforms = [
-    {
-      name: 'iPhone',
-      options: { platform: 'iPhone', userAgent: 'iPhone' },
-      expected: /iPhone or iPad.*Share.*Add to Home Screen/,
-    },
-    {
-      name: 'iPad',
-      options: { platform: 'MacIntel', maxTouchPoints: 5, userAgent: 'Macintosh' },
-      expected: /iPhone or iPad.*Share.*Add to Home Screen/,
-    },
-    {
-      name: 'Mac',
-      options: { platform: 'MacIntel', userAgent: 'Macintosh' },
-      expected: /On Mac.*Add to Dock.*Chrome or Edge/,
-    },
-    {
-      name: 'Windows',
-      options: { platform: 'Win32', userAgent: 'Windows NT 10.0' },
-      expected: /On Windows.*Edge or Chrome/,
-    },
-  ];
-
-  for (const platform of platforms) {
-    await t.test(platform.name, async () => {
-      const harness = createClientHarness(async () => true, platform.options);
-      assert.equal(harness.installButton.hidden, false);
-      await harness.clickInstall();
-      assert.equal(harness.installHelp.hidden, false);
-      assert.match(harness.installHelp.textContent, platform.expected);
-    });
-  }
-});
-
-test('Install Now uses the native browser prompt when one is available', async () => {
-  const harness = createClientHarness(async () => true);
-  let prevented = false;
-  let prompted = false;
-  harness.dispatchWindow('beforeinstallprompt', {
-    preventDefault: () => { prevented = true; },
-    prompt: async () => { prompted = true; },
-    userChoice: Promise.resolve({ outcome: 'accepted' }),
-  });
-
-  await harness.clickInstall();
-
-  assert.equal(prevented, true);
-  assert.equal(prompted, true);
-  assert.equal(harness.installHelp.hidden, true);
-});
-
-test('install controls hide when GBAGL is already running standalone', () => {
-  const harness = createClientHarness(
-    async () => true,
-    { displayStandalone: true },
-  );
-  assert.equal(harness.installButton.hidden, true);
 });
 
 test('offline snapshot warning stays visible when browser connectivity returns', () => {

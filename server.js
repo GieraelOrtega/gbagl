@@ -92,7 +92,7 @@ function createApp(config = loadConfig(), services = {}) {
   const uploadConfig = {
     ...config,
     uploadDir: config.uploadDir || path.join(__dirname, 'runtime', 'uploads'),
-    uploadMaxBytes: config.uploadMaxBytes || 8 * 1024 * 1024,
+    uploadMaxBytes: config.uploadMaxBytes || 20 * 1024 * 1024,
   };
   const exportService = services.exportService
     || createKeepsakeExportService(uploadConfig);
@@ -179,14 +179,19 @@ function createApp(config = loadConfig(), services = {}) {
       passcodeAuth,
     }),
   );
-  app.use(
-    '/albums/photos/upload',
-    createImageUploadIngress({
-      accountAuth,
-      config: uploadConfig,
-      errorDestination: '/albums',
-      passcodeAuth,
-    }),
+  const journalUploadIngress = createImageUploadIngress({
+    accountAuth,
+    config: uploadConfig,
+    errorDestination: '/journal',
+    passcodeAuth,
+  });
+  app.post(
+    '/journal',
+    journalUploadIngress,
+  );
+  app.post(
+    '/journal/:id/photos',
+    journalUploadIngress,
   );
   app.use(csrfProtection.verify);
 
@@ -281,7 +286,7 @@ function createApp(config = loadConfig(), services = {}) {
   app.use('/bucket', accountAuth.requireMemberWrite, createBucketRouter());
   app.use('/reminders', accountAuth.requireMemberWrite, createRemindersRouter());
   app.use('/albums', accountAuth.requireMemberWrite, createAlbumsRouter(uploadConfig));
-  app.use('/journal', accountAuth.requireMemberWrite, createJournalRouter());
+  app.use('/journal', accountAuth.requireMemberWrite, createJournalRouter(uploadConfig));
   app.use((req, res) => {
     res.status(404).render('404', {
       title: '404 — Page Not Found | GBAGL',

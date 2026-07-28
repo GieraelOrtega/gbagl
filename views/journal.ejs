@@ -3,61 +3,132 @@
 <main class="content-page" id="main-content" tabindex="-1">
   <div class="container prose-container">
     <header class="page-header">
-      <h1 class="page-header__title">Shared Journal</h1>
-      <p class="page-header__subtitle">Private reflections from the life you are building together.</p>
+      <h1 class="page-header__title">Journal &amp; Photos</h1>
+      <p class="page-header__subtitle">Capture a moment with its story and photos together.</p>
     </header>
 
     <% if (message) { %><div class="alert alert--success"><%= message %></div><% } %>
     <% if (error) { %><div class="alert alert--error"><%= error %></div><% } %>
     <% if (dbError) { %><div class="alert alert--warning"><%= dbError %></div><% } %>
-    <% if (!canEdit && !offlineSnapshot) { %>
-      <div class="read-only-note">View-only mode: sign in from Settings to add, edit, or reorder journal entries.</div>
-    <% } %>
-
     <% if (!dbError && canEdit) { %>
       <details class="card editor-panel">
-        <summary>Write a journal entry</summary>
-        <form action="/journal" method="post" class="admin-form">
+        <summary>Add a moment</summary>
+        <form action="/journal" method="post" enctype="multipart/form-data"
+              class="admin-form">
           <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
           <%- include('partials/journal-fields', {
             entry: { milestone_id: null, title: '', body: '', entry_date: '' },
             prefix: 'new-journal'
           }) %>
-          <button type="submit" class="btn btn--primary">Add journal entry</button>
+          <%- include('partials/journal-photo-fields', {
+            caption: '',
+            prefix: 'new-journal',
+            required: false
+          }) %>
+          <button type="submit" class="btn btn--primary">Add moment</button>
         </form>
       </details>
       <% if (entries.length > 1) { %>
-        <%- include('partials/reorder-toolbar', { group: 'journal', label: 'journal entries' }) %>
+        <%- include('partials/reorder-toolbar', { group: 'journal', label: 'journal moments' }) %>
       <% } %>
     <% } %>
 
     <div class="journal-list" data-reorder-group="journal" data-reorder-url="/journal/reorder">
       <% entries.forEach((entry) => { %>
-        <article class="card journal-entry" data-reorder-item data-reorder-id="<%= entry.id %>">
+        <article class="card journal-entry" id="journal-entry-<%= entry.id %>"
+                 data-reorder-item data-reorder-id="<%= entry.id %>">
           <% if (canEdit) { %>
             <%- include('partials/reorder-controls', {
-              label: `journal entry ${entry.title}`
+              label: `journal moment ${entry.title}`
             }) %>
           <% } %>
           <p class="tag"><%= entry.entry_date %></p>
           <h2 class="card__title"><%= entry.title %></h2>
           <% if (entry.milestone_title) { %><p><small>Linked to <%= entry.milestone_title %></small></p><% } %>
-          <p class="preserve-lines"><%= entry.body %></p>
+          <% if (entry.body) { %><p class="preserve-lines"><%= entry.body %></p><% } %>
+
+          <% if (entry.photos.length > 0) { %>
+            <div class="journal-photos__heading">
+              <h3>Photos</h3>
+              <% if (canEdit && entry.photos.length > 1) { %>
+                <%- include('partials/reorder-toolbar', {
+                  group: `journal-photos-${entry.id}`,
+                  label: `photos for ${entry.title}`
+                }) %>
+              <% } %>
+            </div>
+            <div class="photo-grid"
+                 data-reorder-group="journal-photos-<%= entry.id %>"
+                 data-reorder-url="/journal/<%= entry.id %>/photos/reorder">
+              <% entry.photos.forEach((photo) => { %>
+                <figure class="card photo-card" data-reorder-item data-reorder-id="<%= photo.id %>">
+                  <% if (canEdit) { %>
+                    <%- include('partials/reorder-controls', {
+                      label: `photo ${photo.caption || photo.id}`
+                    }) %>
+                  <% } %>
+                  <img src="/albums/photos/<%= photo.id %>/content" data-private-media
+                       alt="<%= photo.caption || `Photo from ${entry.title}` %>"
+                       loading="lazy" />
+                  <figcaption class="photo-card__body">
+                    <% if (photo.caption) { %><p><%= photo.caption %></p><% } %>
+                    <% if (canEdit) { %>
+                      <details class="item-editor">
+                        <summary>Edit photo</summary>
+                        <form action="/journal/<%= entry.id %>/photos/<%= photo.id %>"
+                              method="post" class="admin-form">
+                          <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                          <div class="form-group">
+                            <label class="form-label"
+                                   for="journal-photo-<%= photo.id %>-caption">Caption</label>
+                            <input class="form-input" id="journal-photo-<%= photo.id %>-caption"
+                                   name="photo_caption" maxlength="1000"
+                                   value="<%= photo.caption || '' %>" />
+                          </div>
+                          <button type="submit" class="btn btn--primary">Save caption</button>
+                        </form>
+                        <form action="/journal/<%= entry.id %>/photos/<%= photo.id %>/delete"
+                              method="post" class="admin-danger"
+                              data-confirm="Remove this photo?">
+                          <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                          <button type="submit" class="btn btn--outline">Remove photo</button>
+                        </form>
+                      </details>
+                    <% } %>
+                  </figcaption>
+                </figure>
+              <% }) %>
+            </div>
+          <% } %>
+
           <% if (canEdit) { %>
             <details class="item-editor">
-              <summary>Edit journal entry</summary>
+              <summary>Add a photo</summary>
+              <form action="/journal/<%= entry.id %>/photos" method="post"
+                    enctype="multipart/form-data" class="admin-form">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                <%- include('partials/journal-photo-fields', {
+                  caption: '',
+                  prefix: `journal-${entry.id}-new-photo`,
+                  required: true
+                }) %>
+                <button type="submit" class="btn btn--primary">Add photo</button>
+              </form>
+            </details>
+            <details class="item-editor">
+              <summary>Edit moment</summary>
               <form action="/journal/<%= entry.id %>" method="post" class="admin-form">
                 <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
                 <%- include('partials/journal-fields', {
                   entry,
                   prefix: `journal-${entry.id}`
                 }) %>
-                <button type="submit" class="btn btn--primary">Save entry</button>
+                <button type="submit" class="btn btn--primary">Save moment</button>
               </form>
               <form action="/journal/<%= entry.id %>/delete" method="post"
-                    class="admin-danger" data-confirm="Delete this journal entry?">
+                    class="admin-danger" data-confirm="Delete this moment and all of its photos?">
                 <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-                <button type="submit" class="btn btn--outline">Delete entry</button>
+                <button type="submit" class="btn btn--outline">Delete moment</button>
               </form>
             </details>
           <% } %>
@@ -65,7 +136,7 @@
       <% }) %>
     </div>
     <% if (!dbError && entries.length === 0) { %>
-      <div class="empty-state">No journal entries yet.</div>
+      <div class="empty-state">No journal moments yet.</div>
     <% } %>
   </div>
 </main>

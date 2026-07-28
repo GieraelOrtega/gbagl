@@ -13,13 +13,10 @@ test('every standard page has a keyboard skip target', () => {
   [
     '404.ejs',
     'adventure.ejs',
-    'album.ejs',
-    'albums.ejs',
     'bucket.ejs',
     'error.ejs',
     'index.ejs',
     'journal.ejs',
-    'reminders.ejs',
     'settings-exports.ejs',
     'settings-login.ejs',
     'settings.ejs',

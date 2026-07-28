@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { PassThrough } = require('stream');
-const archiver = require('archiver');
+const { ZipArchive } = require('archiver');
 const PDFDocument = require('pdfkit');
 const { PNG } = require('pngjs');
 const { getPool, isDbAvailable } = require('../db');
@@ -9,7 +9,7 @@ const { existingImageName } = require('../lib/hubValidation');
 const { detectImageType, safeUploadPath } = require('../lib/media');
 const { withMediaOperation } = require('./mediaCoordinator');
 
-const EXPORT_SCHEMA_VERSION = 1;
+const EXPORT_SCHEMA_VERSION = 2;
 const MAX_EXPORT_PHOTOS = 500;
 const MAX_MEDIA_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_TOTAL_MEDIA_BYTES = 128 * 1024 * 1024;
@@ -41,14 +41,11 @@ const EXPORT_QUERIES = Object.freeze({
                   DATE_FORMAT(reminder_at, '%Y-%m-%dT%H:%i:%sZ') AS reminder_at,
                   notes, is_completed, display_order
            FROM shared_events ORDER BY display_order, event_at, id`,
-  albums: `SELECT id, title, description,
-                  DATE_FORMAT(album_date, '%Y-%m-%d') AS album_date,
-                  display_order
-           FROM photo_albums ORDER BY display_order, album_date, id`,
-  photos: `SELECT id, album_id, milestone_id, caption,
+  photos: `SELECT id, journal_entry_id, milestone_id, caption,
                   DATE_FORMAT(photo_date, '%Y-%m-%d') AS photo_date,
                   display_order, storage_type, storage_name, media_type
-           FROM album_photos ORDER BY album_id, display_order, id`,
+           FROM album_photos WHERE journal_entry_id IS NOT NULL
+           ORDER BY journal_entry_id, display_order, id`,
 });
 
 class DatabaseUnavailableError extends Error {
@@ -82,14 +79,14 @@ function mediaArchiveName(photo) {
   if (
     !Number.isSafeInteger(Number(photo.id))
     || Number(photo.id) <= 0
-    || !Number.isSafeInteger(Number(photo.album_id))
-    || Number(photo.album_id) <= 0
+    || !Number.isSafeInteger(Number(photo.journal_entry_id))
+    || Number(photo.journal_entry_id) <= 0
     || !extension
   ) {
     throw new Error('Invalid photo export metadata');
   }
   return safeArchiveName(
-    `media/albums/${String(photo.album_id).padStart(6, '0')}/photo-${String(photo.id).padStart(6, '0')}.${extension}`,
+    `media/journal/${String(photo.journal_entry_id).padStart(6, '0')}/photo-${String(photo.id).padStart(6, '0')}.${extension}`,
   );
 }
 
@@ -178,7 +175,6 @@ async function loadKeepsakeData(dependencies = {}) {
       journals: data.journals,
       completedBucketItems: data.bucket,
       events: data.events,
-      albums: data.albums,
       photos: data.photos,
     };
   } catch (error) {
@@ -265,7 +261,7 @@ async function loadExportMedia(config, photos, timeline, dependencies = {}) {
       media.push({
         archivePath,
         buffer,
-        kind: 'album',
+        kind: 'journal-photo',
         mediaType: photo.media_type,
         record: photo,
         status: 'included',
@@ -275,7 +271,7 @@ async function loadExportMedia(config, photos, timeline, dependencies = {}) {
       media.push({
         archivePath,
         buffer: null,
-        kind: 'album',
+        kind: 'journal-photo',
         mediaType: photo.media_type,
         record: photo,
         status: 'missing-or-unreadable',
@@ -332,8 +328,8 @@ async function loadExportMedia(config, photos, timeline, dependencies = {}) {
 }
 
 function publicExportData(data, media, generatedAt) {
-  const albumStatus = new Map(media
-    .filter((item) => item.kind === 'album')
+  const photoStatus = new Map(media
+    .filter((item) => item.kind === 'journal-photo')
     .map((item) => [Number(item.record.id), item]));
   const timelineStatus = new Map(media
     .filter((item) => item.kind === 'timeline')
@@ -351,24 +347,26 @@ function publicExportData(data, media, generatedAt) {
         media_type: item?.mediaType || null,
       };
     }),
-    journals: data.journals,
+    journals: data.journals.map((journal) => ({
+      ...journal,
+      photos: data.photos
+        .filter((photo) => Number(photo.journal_entry_id) === Number(journal.id))
+        .map((photo) => {
+          const item = photoStatus.get(Number(photo.id));
+          return {
+            id: photo.id,
+            milestone_id: photo.milestone_id,
+            caption: photo.caption,
+            photo_date: photo.photo_date,
+            display_order: photo.display_order,
+            media_type: photo.media_type,
+            archive_path: item.archivePath,
+            media_status: item.status,
+          };
+        }),
+    })),
     completedBucketItems: data.completedBucketItems,
     events: data.events,
-    albums: data.albums,
-    photos: data.photos.map((photo) => {
-      const item = albumStatus.get(Number(photo.id));
-      return {
-        id: photo.id,
-        album_id: photo.album_id,
-        milestone_id: photo.milestone_id,
-        caption: photo.caption,
-        photo_date: photo.photo_date,
-        display_order: photo.display_order,
-        media_type: photo.media_type,
-        archive_path: item.archivePath,
-        media_status: item.status,
-      };
-    }),
   };
 }
 
@@ -393,11 +391,6 @@ function buildPrintableHtml(exportData) {
     exportData.settings.partner_one_name || 'Partner One',
     exportData.settings.partner_two_name || 'Partner Two',
   ];
-  const photosByAlbum = new Map();
-  exportData.photos.forEach((photo) => {
-    if (!photosByAlbum.has(photo.album_id)) photosByAlbum.set(photo.album_id, []);
-    photosByAlbum.get(photo.album_id).push(photo);
-  });
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <title>GBAGL Keepsake</title><style>
@@ -410,10 +403,9 @@ h1,h2{color:#c94d60}h1{text-align:center}.meta{text-align:center;color:#8b6070}
 <p class="meta">GBAGL relationship keepsake${exportData.settings.anniversary_date
     ? ` · Anniversary ${escapeHtml(exportData.settings.anniversary_date)}` : ''}</p>
 <h2>Timeline</h2>${htmlList(exportData.timeline, (item) => `<article class="item"><strong>${escapeHtml(item.milestone_date)} · ${escapeHtml(item.title)}</strong><p>${escapeHtml(item.description)}</p>${item.archive_path ? (item.media_status === 'included' && item.media_type !== 'image/svg+xml' ? `<img class="photo" src="${escapeHtml(item.archive_path)}" alt="">` : `<p class="empty">Timeline photo included as ${escapeHtml(item.archive_path)}.</p>`) : ''}</article>`)}
-<h2>Journal</h2>${htmlList(exportData.journals, (item) => `<article class="item"><strong>${escapeHtml(item.entry_date)} · ${escapeHtml(item.title)}</strong><p>${escapeHtml(item.body).replace(/\n/g, '<br>')}</p></article>`)}
+<h2>Journal &amp; Photos</h2>${htmlList(exportData.journals, (item) => `<article class="item"><strong>${escapeHtml(item.entry_date)} · ${escapeHtml(item.title)}</strong><p>${escapeHtml(item.body).replace(/\n/g, '<br>')}</p>${htmlList(item.photos || [], (photo) => `<figure>${photo.media_status === 'included' ? `<img class="photo" src="${escapeHtml(photo.archive_path)}" alt="">` : `<p class="empty">Photo file unavailable (${escapeHtml(photo.archive_path)}).</p>`}<figcaption class="caption">${escapeHtml(photo.caption || `Photo ${photo.id}`)}</figcaption></figure>`)}</article>`)}
 <h2>Completed bucket memories</h2>${htmlList(exportData.completedBucketItems, (item) => `<article class="item"><strong>${escapeHtml(item.completed_at)} · ${escapeHtml(item.title)}</strong><p>${escapeHtml(item.memory || item.description).replace(/\n/g, '<br>')}</p></article>`)}
 <h2>Shared events</h2>${htmlList(exportData.events, (item) => `<article class="item"><strong>${escapeHtml(item.event_at)} · ${escapeHtml(item.title)}</strong><p>${escapeHtml(item.notes || '')}</p></article>`)}
-<h2>Albums</h2>${htmlList(exportData.albums, (album) => `<section class="item"><h3>${escapeHtml(album.title)}</h3><p>${escapeHtml(album.description)}</p>${htmlList(photosByAlbum.get(album.id) || [], (photo) => `<figure>${photo.media_status === 'included' ? `<img class="photo" src="${escapeHtml(photo.archive_path)}" alt="">` : `<p class="empty">Photo file unavailable (${escapeHtml(photo.archive_path)}).</p>`}<figcaption class="caption">${escapeHtml(photo.caption || `Photo ${photo.id}`)}</figcaption></figure>`)}</section>`)}
 </body></html>`;
 }
 
@@ -629,7 +621,7 @@ async function buildPdf(exportData, media, limits = {}) {
       info: {
         Title: 'GBAGL Relationship Keepsake',
         Author: 'GBAGL',
-        Subject: 'Timeline, journal, memories, events, and albums',
+        Subject: 'Timeline, journal moments and photos, bucket memories, and events',
       },
       margins: { top: 54, right: 54, bottom: 58, left: 54 },
     });
@@ -688,7 +680,15 @@ async function buildPdf(exportData, media, limits = {}) {
           .text(`${image.mediaType === 'image/webp' ? 'WebP' : 'Timeline'} photo included in ZIP as ${image.archivePath}.`);
       }
     });
-    addPdfSection(doc, 'Journal', exportData.journals, (item) => {
+    const journalMedia = new Map();
+    pdfMedia
+      .filter((item) => item.kind === 'journal-photo')
+      .forEach((item) => {
+        const entryId = Number(item.record.journal_entry_id);
+        if (!journalMedia.has(entryId)) journalMedia.set(entryId, []);
+        journalMedia.get(entryId).push(item);
+      });
+    addPdfSection(doc, 'Journal & photos', exportData.journals, (item) => {
       const title = `${textValue(item.entry_date)} - ${textValue(item.title)}`;
       reservePdfItem(doc, [
         { font: 'Helvetica-Bold', size: 11, text: title },
@@ -697,6 +697,33 @@ async function buildPdf(exportData, media, limits = {}) {
       doc.font('Helvetica-Bold').fontSize(11)
         .text(title);
       doc.font('Helvetica').fontSize(10).text(textValue(item.body));
+      (journalMedia.get(Number(item.id)) || []).forEach((photoItem) => {
+        const photo = photoItem.record;
+        const caption = photo.caption || `Photo ${photo.id}`;
+        reservePdfItem(doc, [
+          { font: 'Helvetica-Bold', size: 10, text: caption },
+        ], photoItem.pdfBuffer ? 300 : 14);
+        doc.font('Helvetica-Bold').fontSize(10).text(caption);
+        if (!photoItem.buffer) {
+          doc.font('Helvetica-Oblique').fontSize(9)
+            .text('Photo file was missing or unreadable.');
+        } else if (photo.media_type === 'image/webp') {
+          doc.font('Helvetica-Oblique').fontSize(9)
+            .text(`WebP photo included in ZIP as ${photoItem.archivePath}.`);
+        } else if (photoItem.pdfBuffer) {
+          ensurePdfSpace(doc, 300);
+          embedPdfImage(doc, photoItem.pdfBuffer, {
+            fit: [450, 300],
+            align: 'center',
+          }, 'Photo could not be embedded; its caption remains in this PDF.');
+        } else if (photoItem.pdfStatus?.startsWith('skipped-')) {
+          doc.font('Helvetica-Oblique').fontSize(9)
+            .text('Photo skipped because the PDF image safety budget was reached.');
+        } else {
+          doc.font('Helvetica-Oblique').fontSize(9)
+            .text('Photo could not be embedded; its caption remains in this PDF.');
+        }
+      });
     });
     addPdfSection(doc, 'Completed bucket memories', exportData.completedBucketItems, (item) => {
       const title = `${textValue(item.completed_at)} - ${textValue(item.title)}`;
@@ -718,36 +745,6 @@ async function buildPdf(exportData, media, limits = {}) {
       doc.font('Helvetica-Bold').fontSize(11)
         .text(title);
       if (item.notes) doc.font('Helvetica').fontSize(10).text(item.notes);
-    });
-
-    const albumById = new Map(exportData.albums.map((album) => [Number(album.id), album]));
-    addPdfSection(doc, 'Albums and photos', pdfMedia.filter((item) => item.kind === 'album'), (item) => {
-      const photo = item.record;
-      const album = albumById.get(Number(photo.album_id));
-      const title = `${album?.title || 'Album'} - ${photo.caption || `Photo ${photo.id}`}`;
-      reservePdfItem(doc, [
-        { font: 'Helvetica-Bold', size: 11, text: title },
-      ], item.pdfBuffer ? 300 : 14);
-      doc.font('Helvetica-Bold').fontSize(11)
-        .text(title);
-      if (!item.buffer) {
-        doc.font('Helvetica-Oblique').fontSize(9).text('Photo file was missing or unreadable.');
-      } else if (photo.media_type === 'image/webp') {
-        doc.font('Helvetica-Oblique').fontSize(9)
-          .text(`WebP photo included in ZIP as ${item.archivePath}.`);
-      } else if (item.pdfBuffer) {
-        ensurePdfSpace(doc, 300);
-        embedPdfImage(doc, item.pdfBuffer, {
-          fit: [450, 300],
-          align: 'center',
-        }, 'Photo could not be embedded; its caption remains in this PDF.');
-      } else if (item.pdfStatus?.startsWith('skipped-')) {
-        doc.font('Helvetica-Oblique').fontSize(9)
-          .text('Photo skipped because the PDF image safety budget was reached.');
-      } else {
-        doc.font('Helvetica-Oblique').fontSize(9)
-          .text('Photo could not be embedded; its caption remains in this PDF.');
-      }
     });
 
     const range = doc.bufferedPageRange();
@@ -792,7 +789,7 @@ function collectArchive(archive) {
 }
 
 async function buildZip(exportData, media) {
-  const archive = archiver('zip', { zlib: { level: 9 } });
+  const archive = new ZipArchive({ zlib: { level: 9 } });
   const result = collectArchive(archive);
   archive.append(buildPrintableHtml(exportData), {
     name: safeArchiveName('keepsake.html'),

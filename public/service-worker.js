@@ -1,6 +1,6 @@
-importScripts('/js/pwaPolicy.js?v=gk-ux-1');
+importScripts('/js/pwaPolicy.js?v=gk-consolidation-1');
 
-const CACHE_VERSION = 'v2';
+const CACHE_VERSION = 'v3';
 const STATE_SCHEMA_VERSION = 2;
 const PUBLIC_CACHE = `gbagl-public-${CACHE_VERSION}`;
 const PRIVATE_CACHE_ROOT = 'gbagl-private-';
