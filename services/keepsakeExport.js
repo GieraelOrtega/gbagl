@@ -7,6 +7,7 @@ const { PNG } = require('pngjs');
 const { getPool, isDbAvailable } = require('../db');
 const { existingImageName } = require('../lib/hubValidation');
 const { detectImageType, safeUploadPath } = require('../lib/media');
+const { timelinePhotoDetails: resolveTimelinePhotoDetails } = require('../lib/timelinePhoto');
 const { withMediaOperation } = require('./mediaCoordinator');
 
 const EXPORT_SCHEMA_VERSION = 2;
@@ -25,7 +26,8 @@ const EXPORT_QUERIES = Object.freeze({
              WHERE setting_key IN (
                'partner_one_name', 'partner_two_name', 'anniversary_date', 'timezone'
              ) ORDER BY setting_key`,
-  timeline: `SELECT id, display_order, milestone_date, title, description, emoji, photo
+  timeline: `SELECT id, display_order, milestone_date, title, description, emoji, photo,
+                    photo_storage_type, photo_media_type
              FROM timeline_milestones ORDER BY display_order, id`,
   journals: `SELECT id, milestone_id, title, body, display_order,
                     DATE_FORMAT(entry_date, '%Y-%m-%d') AS entry_date
@@ -94,33 +96,13 @@ function timelineMediaDetails(config, milestone) {
   if (
     !Number.isSafeInteger(Number(milestone.id))
     || Number(milestone.id) <= 0
-    || typeof milestone.photo !== 'string'
-    || milestone.photo.includes('..')
-    || milestone.photo.includes('\\')
-    || !/^images\/[A-Za-z0-9][A-Za-z0-9._/-]*\.(?:avif|gif|jpe?g|png|svg|webp)$/i
-      .test(milestone.photo)
   ) throw new Error('Invalid timeline photo metadata');
-  const publicRoot = path.resolve(config.publicDir || path.join(__dirname, '..', 'public'));
-  const filePath = path.resolve(publicRoot, milestone.photo);
-  const relative = path.relative(publicRoot, filePath);
-  if (relative.startsWith(`..${path.sep}`) || relative === '..' || path.isAbsolute(relative)) {
-    throw new Error('Invalid timeline photo path');
-  }
-  const extension = path.extname(filePath).slice(1).toLowerCase().replace('jpeg', 'jpg');
-  const mediaType = {
-    avif: 'image/avif',
-    gif: 'image/gif',
-    jpg: 'image/jpeg',
-    png: 'image/png',
-    svg: 'image/svg+xml',
-    webp: 'image/webp',
-  }[extension];
+  const details = resolveTimelinePhotoDetails(config, milestone);
   return {
+    ...details,
     archivePath: safeArchiveName(
-      `media/timeline/milestone-${String(milestone.id).padStart(6, '0')}.${extension}`,
+      `media/timeline/milestone-${String(milestone.id).padStart(6, '0')}.${details.extension}`,
     ),
-    filePath,
-    mediaType,
   };
 }
 
@@ -282,8 +264,7 @@ async function loadExportMedia(config, photos, timeline, dependencies = {}) {
     let details;
     try {
       details = timelineMediaDetails(config, milestone);
-      const publicRoot = path.resolve(config.publicDir || path.join(__dirname, '..', 'public'));
-      const file = await inspectFile(details.filePath, publicRoot);
+      const file = await inspectFile(details.filePath, details.root);
       if (inspectedBytes + file.size > MAX_TOTAL_INSPECTED_MEDIA_BYTES) {
         throw new Error('Keepsake media exceeds the inspection limit');
       }

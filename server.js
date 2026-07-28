@@ -27,6 +27,7 @@ const { createAlbumsRouter } = require('./routes/albums');
 const { createBucketRouter } = require('./routes/bucket');
 const { createJournalRouter } = require('./routes/journal');
 const { createRemindersRouter } = require('./routes/reminders');
+const { createTimelineRouter } = require('./routes/timeline');
 const {
   PRIVATE_SNAPSHOT_HEADER,
   SNAPSHOT_OPT_IN,
@@ -193,6 +194,17 @@ function createApp(config = loadConfig(), services = {}) {
     '/journal/:id/photos',
     journalUploadIngress,
   );
+  const timelineUploadIngress = createImageUploadIngress({
+    accountAuth,
+    config: uploadConfig,
+    errorDestination: '/timeline',
+    passcodeAuth,
+  });
+  app.post(
+    '/timeline',
+    timelineUploadIngress,
+  );
+  app.post(/^\/timeline\/[1-9]\d*$/, timelineUploadIngress);
   app.use(csrfProtection.verify);
 
   const unlockStore = new rateLimit.MemoryStore();
@@ -282,7 +294,11 @@ function createApp(config = loadConfig(), services = {}) {
   }));
   app.use('/', createIndexRouter(uploadConfig, accountAuth));
   app.use('/adventure', accountAuth.requireMemberWrite, require('./routes/adventure'));
-  app.use('/timeline', accountAuth.requireMemberWrite, require('./routes/timeline'));
+  app.use(
+    '/timeline',
+    accountAuth.requireMemberWrite,
+    createTimelineRouter(uploadConfig),
+  );
   app.use('/bucket', accountAuth.requireMemberWrite, createBucketRouter());
   app.use('/reminders', accountAuth.requireMemberWrite, createRemindersRouter());
   app.use('/albums', accountAuth.requireMemberWrite, createAlbumsRouter(uploadConfig));
