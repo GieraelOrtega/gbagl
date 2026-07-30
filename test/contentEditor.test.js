@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const ejs = require('ejs');
+const { formatDate } = require('../lib/presentation');
 
 function read(relativePath) {
   return fs.readFileSync(path.join(__dirname, '..', relativePath), 'utf8');
@@ -13,7 +14,8 @@ test('content forms live on their corresponding pages instead of Settings', () =
     ['views/adventure.ejs', ['/adventure', '/adventure/<%= idea.id %>']],
     ['views/partials/events-section.ejs', ['/reminders', '/reminders/<%= event.id %>']],
     ['views/timeline.ejs', ['/timeline', '/timeline/<%= milestone.id %>']],
-    ['views/bucket.ejs', ['/bucket', '/bucket/<%= item.id %>']],
+    ['views/bucket.ejs', ['/bucket']],
+    ['views/partials/bucket-card.ejs', ['/bucket/<%= item.id %>']],
     ['views/journal.ejs', [
       '/journal',
       '/journal/<%= entry.id %>',
@@ -22,7 +24,7 @@ test('content forms live on their corresponding pages instead of Settings', () =
   ]);
   for (const [file, actions] of expectations) {
     const source = read(file);
-    assert.match(source, /if \(canEdit/);
+    assert.match(source, /if \([^)]*canEdit/);
     actions.forEach((action) => assert.ok(source.includes(`action="${action}`), `${file} missing ${action}`));
   }
 
@@ -36,12 +38,12 @@ test('every ordered content surface exposes protected reorder metadata', () => {
     ['views/adventure.ejs', '/adventure/reorder'],
     ['views/partials/events-section.ejs', '/reminders/reorder'],
     ['views/timeline.ejs', '/timeline/reorder'],
-    ['views/bucket.ejs', '/bucket/reorder'],
+    ['views/bucket.ejs', '/bucket/reorder', 'views/partials/bucket-card.ejs'],
     ['views/journal.ejs', '/journal/reorder'],
     ['views/journal.ejs', '/photos/reorder'],
   ];
-  views.forEach(([file, endpoint]) => {
-    const source = read(file);
+  views.forEach(([file, endpoint, itemFile]) => {
+    const source = `${read(file)}${itemFile ? read(itemFile) : ''}`;
     assert.match(source, /data-reorder-item/);
     assert.ok(source.includes(endpoint), `${file} missing ${endpoint}`);
   });
@@ -57,6 +59,8 @@ test('every ordered content surface exposes protected reorder metadata', () => {
   assert.match(client, /cancelActiveDrag\(\)/);
   assert.match(client, /data-reorder-busy/);
   assert.match(client, /data-reorder-boundary/);
+  assert.match(client, /function submittedItems\(group, list\)/);
+  assert.match(client, /list\.dataset\.reorderSubmit === 'list'/);
   assert.match(client, /\.then\(\(saved\) =>/);
   assert.doesNotMatch(client, /control\.disabled = busy/);
   assert.doesNotMatch(client, /up\.disabled = index/);
@@ -137,12 +141,26 @@ test('editable page templates render with representative content', async () => {
     ['bucket.ejs', {
       ...base,
       page: 'bucket',
-      items: [{
-        id: 1, title: 'A dream', description: 'Go somewhere', category: 'travel',
-        target_date: null, is_favorite: 0, completed_at: null, memory: null,
-        partner_one_vote: null, partner_two_vote: null,
+      activeItems: [
+        {
+          id: 1, title: 'A dream', description: 'Go somewhere', category: 'travel',
+          target_date: null, is_favorite: 0, completed_at: null, memory: null,
+          partner_one_vote: null, partner_two_vote: null,
+        },
+        {
+          id: 2, title: 'Another dream', description: 'Try something', category: 'food',
+          target_date: '2026-09-01', is_favorite: 1, completed_at: null, memory: null,
+          partner_one_vote: 'yes', partner_two_vote: 'maybe',
+        },
+      ],
+      completedItems: [{
+        id: 3, title: 'A memory', description: 'We did it', category: 'experience',
+        target_date: null, is_favorite: 1, completed_at: '2026-07-20',
+        memory: 'A day to remember', partner_one_vote: 'yes', partner_two_vote: 'yes',
       }],
+      formatDate,
       labels: { partner_one: 'Gierael', partner_two: 'Kim' },
+      today: '2026-07-27',
     }],
     ['journal.ejs', {
       ...base,
@@ -163,4 +181,80 @@ test('editable page templates render with representative content', async () => {
     assert.match(html, /data-reorder-item/, `${template} did not render editable content`);
     assert.match(html, /name="_csrf" value="csrf-token"/);
   }
+});
+
+test('Bucket List rendering keeps active dreams first and completed controls status-scoped', async () => {
+  const locals = {
+    title: 'Bucket List',
+    page: 'bucket',
+    currentUser: { displayName: 'Kim', role: 'member' },
+    canEdit: true,
+    isAdmin: false,
+    offlineSnapshot: false,
+    csrfToken: 'csrf-token',
+    message: null,
+    error: null,
+    dbError: null,
+    activeItems: [
+      {
+        id: 1, title: 'First active dream', description: 'First', category: 'travel',
+        target_date: null, is_favorite: 0, completed_at: null, memory: null,
+        partner_one_vote: null, partner_two_vote: null,
+      },
+      {
+        id: 2, title: 'Second active dream', description: 'Second', category: 'food',
+        target_date: '2026-08-01', is_favorite: 1, completed_at: null, memory: null,
+        partner_one_vote: 'yes', partner_two_vote: 'maybe',
+      },
+    ],
+    completedItems: [{
+      id: 3, title: 'Completed dream', description: 'Done', category: 'experience',
+      target_date: null, is_favorite: 0, completed_at: '2026-07-20',
+      memory: 'The best afternoon.', partner_one_vote: 'yes', partner_two_vote: 'yes',
+    }],
+    formatDate,
+    labels: { partner_one: 'Gierael', partner_two: 'Kim' },
+    today: '2026-07-27',
+  };
+  const html = await ejs.renderFile(
+    path.join(__dirname, '..', 'views', 'bucket.ejs'),
+    locals,
+  );
+
+  assert.ok(html.indexOf('id="active-dreams-heading"') < html.indexOf('id="completed-dreams-heading"'));
+  assert.match(html, /aria-label="2 active dreams"/);
+  assert.match(html, /aria-label="1 completed dream"/);
+  assert.match(html, /data-reorder-group="bucket-active"[\s\S]*data-reorder-submit="list"/);
+  assert.match(html, /id="bucket-item-1"[\s\S]*data-reorder-item/);
+  const completedCard = html.match(
+    /<article[^>]*id="bucket-item-3"[\s\S]*?<\/article>/,
+  )?.[0];
+  assert.ok(completedCard);
+  assert.doesNotMatch(completedCard, /data-reorder-item|data-drag-handle/);
+  assert.match(completedCard, /<time datetime="2026-07-20">July 20, 2026<\/time>/);
+  assert.match(completedCard, /The best afternoon\./);
+  assert.match(html, /name="completed_at"[\s\S]*value="2026-07-27"[\s\S]*required/);
+  for (const action of [
+    '/favorite',
+    '/vote',
+    '/completion',
+    '/memory',
+    '/delete',
+  ]) {
+    assert.ok(html.includes(action), `Bucket List rendering missing ${action}`);
+  }
+
+  const offlineHtml = await ejs.renderFile(
+    path.join(__dirname, '..', 'views', 'bucket.ejs'),
+    {
+      ...locals,
+      currentUser: null,
+      canEdit: false,
+      offlineSnapshot: true,
+      csrfToken: null,
+    },
+  );
+  assert.match(offlineHtml, /<body data-offline-snapshot>/);
+  assert.match(offlineHtml, /The best afternoon\./);
+  assert.doesNotMatch(offlineHtml, /<form|contentEditor\.js/);
 });

@@ -14,6 +14,7 @@ function reorderPool(existingRows) {
     committed: 0,
     released: 0,
     rolledBack: 0,
+    selects: [],
     updates: [],
   };
   const connection = {
@@ -22,7 +23,10 @@ function reorderPool(existingRows) {
     rollback: async () => { state.rolledBack += 1; },
     release: () => { state.released += 1; },
     execute: async (sql, params = []) => {
-      if (sql.includes('SELECT id FROM')) return [existingRows];
+      if (sql.includes('SELECT id FROM')) {
+        state.selects.push({ sql, params });
+        return [existingRows];
+      }
       if (sql.includes('SET display_order')) {
         state.updates.push({ sql, params });
         return [{ affectedRows: 1 }];
@@ -71,6 +75,27 @@ test('reordering validates the complete collection and commits sequential positi
     fake.state.updates.map((update) => update.params),
     [[0, 3], [1, 1], [2, 2]],
   );
+});
+
+test('active bucket ordering validates and updates only the complete active subset', async () => {
+  const fake = reorderPool([{ id: 1 }, { id: 3 }]);
+  await reorderCollection(fake.pool, 'bucketActive', ['3', '1']);
+
+  assert.match(fake.state.selects[0].sql, /WHERE completed_at IS NULL/);
+  assert.deepEqual(
+    fake.state.updates.map((update) => update.params),
+    [[0, 3], [1, 1]],
+  );
+  assert.ok(fake.state.updates.every(
+    (update) => /WHERE id = \? AND completed_at IS NULL/.test(update.sql),
+  ));
+
+  const stale = reorderPool([{ id: 1 }, { id: 3 }]);
+  await assert.rejects(
+    reorderCollection(stale.pool, 'bucketActive', ['1']),
+    /Content changed while reordering/,
+  );
+  assert.equal(stale.state.rolledBack, 1);
 });
 
 test('photo ordering is scoped to one Journal moment and stale sequences roll back', async () => {

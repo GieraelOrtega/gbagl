@@ -1339,6 +1339,172 @@ h1, h2, h3, h4 {
 .form-textarea--large { min-height: 220px; }
 .check-label { display: flex; align-items: center; gap: var(--space-sm); font-weight: 700; }
 
+/* Bucket List */
+.bucket-section {
+  margin-top: var(--space-2xl);
+}
+
+.bucket-section--completed {
+  margin-top: var(--space-3xl);
+  padding-top: var(--space-2xl);
+  border-top: 2px solid var(--color-border);
+}
+
+.bucket-section__header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-lg);
+  margin-bottom: var(--space-xl);
+}
+
+.bucket-section__intro {
+  min-width: 0;
+}
+
+.bucket-section__intro .section-eyebrow {
+  margin-bottom: var(--space-xs);
+  color: var(--color-text);
+  text-align: left;
+}
+
+.bucket-section__title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.bucket-section__title {
+  font-family: var(--font-heading);
+  font-size: clamp(1.75rem, 7vw, 2.35rem);
+  line-height: 1.15;
+}
+
+.bucket-section__description {
+  max-width: 650px;
+  margin-top: var(--space-xs);
+  color: var(--color-text-muted);
+}
+
+.bucket-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  min-height: 2rem;
+  padding: 0.2rem 0.65rem;
+  border-radius: var(--radius-full);
+  background: var(--color-bg-alt);
+  color: var(--color-text);
+  font-weight: 800;
+}
+
+.bucket-count--completed {
+  background: var(--color-success-bg);
+  color: var(--color-success-text);
+}
+
+.bucket-section__header .reorder-toolbar {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.bucket-grid > *,
+.bucket-card,
+.bucket-card__heading,
+.bucket-card form,
+.bucket-card .form-group {
+  min-width: 0;
+}
+
+.bucket-card {
+  overflow-wrap: anywhere;
+}
+
+.bucket-card .hub-card__header {
+  flex-wrap: wrap;
+}
+
+.bucket-card .card__title {
+  margin-bottom: 0;
+  overflow-wrap: anywhere;
+}
+
+.bucket-card__labels {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-xs);
+}
+
+.bucket-favorite {
+  color: var(--color-primary);
+  line-height: 1;
+}
+
+.bucket-card__favorite-form {
+  flex: 0 0 auto;
+}
+
+.bucket-card__meta {
+  color: var(--color-text-muted);
+}
+
+.bucket-completion-summary,
+.bucket-memory,
+.bucket-completion-form {
+  padding: var(--space-md);
+  border-radius: var(--radius-sm);
+}
+
+.bucket-completion-summary {
+  background: var(--color-success-bg);
+  color: var(--color-success-text);
+}
+
+.bucket-completion-summary strong {
+  margin-right: var(--space-xs);
+}
+
+.bucket-memory {
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-alt);
+}
+
+.bucket-memory h4 {
+  margin-bottom: var(--space-xs);
+}
+
+.bucket-memory__empty {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.bucket-completion-form {
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-alt);
+}
+
+.bucket-card .form-input,
+.bucket-card .form-select,
+.bucket-card .form-textarea {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.bucket-completion-form .btn,
+.bucket-reopen-form .btn,
+.bucket-memory-editor .btn {
+  justify-self: start;
+}
+
+.bucket-empty-state h3 {
+  margin-bottom: var(--space-xs);
+  color: var(--color-text);
+}
+
 /* ── 404 page ───────────────────────────────────────────────── */
 .error-page {
   text-align: center;
@@ -1383,6 +1549,38 @@ h1, h2, h3, h4 {
   .editor-grid { grid-template-columns: repeat(2, 1fr); }
   .dashboard__grid, .album-grid { grid-template-columns: repeat(3, 1fr); }
   .hub-grid, .photo-grid, .vote-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 639px) {
+  .bucket-page .editor-panel,
+  .bucket-card {
+    padding: var(--space-lg);
+    border-radius: var(--radius-md);
+  }
+
+  .bucket-section__header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .bucket-section__header .reorder-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .bucket-card .hub-card__header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .bucket-card__favorite-form .btn,
+  .bucket-completion-form .btn,
+  .bucket-reopen-form .btn,
+  .bucket-memory-editor .btn,
+  .bucket-card .admin-form > .btn,
+  .bucket-card .admin-danger .btn {
+    width: 100%;
+  }
 }
 
 /* ── Responsive — Desktop (1024px+) ─────────────────────────── */

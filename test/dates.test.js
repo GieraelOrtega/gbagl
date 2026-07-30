@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
+  localDateValue,
   nextAnniversary,
   zonedLocalToUtc,
 } = require('../lib/dates');
@@ -61,6 +62,12 @@ test('local event times convert to UTC and reject skipped daylight-saving times'
     () => zonedLocalToUtc('2026-03-08T02:30', 'America/Los_Angeles'),
     /does not exist/,
   );
+});
+
+test('local date values follow the configured timezone at day boundaries', () => {
+  const instant = new Date('2026-07-28T02:03:17.426Z');
+  assert.equal(localDateValue(instant, 'America/Los_Angeles'), '2026-07-27');
+  assert.equal(localDateValue(instant, 'Asia/Tokyo'), '2026-07-28');
 });
 
 test('anniversary dates render without timezone day shifts', () => {

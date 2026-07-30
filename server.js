@@ -299,7 +299,11 @@ function createApp(config = loadConfig(), services = {}) {
     accountAuth.requireMemberWrite,
     createTimelineRouter(uploadConfig),
   );
-  app.use('/bucket', accountAuth.requireMemberWrite, createBucketRouter());
+  app.use(
+    '/bucket',
+    accountAuth.requireMemberWrite,
+    createBucketRouter(services.bucketDependencies),
+  );
   app.use('/reminders', accountAuth.requireMemberWrite, createRemindersRouter());
   app.use('/albums', accountAuth.requireMemberWrite, createAlbumsRouter(uploadConfig));
   app.use('/journal', accountAuth.requireMemberWrite, createJournalRouter(uploadConfig));

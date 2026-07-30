@@ -7,7 +7,7 @@ const {
   positiveId,
   validateSettings,
 } = require('../lib/validation');
-const { validateEvent } = require('../lib/hubValidation');
+const { validateBucketCompletion, validateEvent } = require('../lib/hubValidation');
 const { backupFilename, resolveBackupPath } = require('../services/backup');
 
 test('admin validation accepts safe values and rejects traversal or unsafe URLs', () => {
@@ -40,6 +40,22 @@ test('event validation rejects reminders scheduled after an event', () => {
     reminder_at: '2026-07-19T19:00',
     notes: '',
   }), /must not be after/);
+});
+
+test('bucket completion accepts only explicit status values and valid required dates', () => {
+  assert.equal(validateBucketCompletion({
+    completed: '1',
+    completed_at: '2026-07-27',
+  }), '2026-07-27');
+  assert.equal(validateBucketCompletion({ completed: '0' }), null);
+  assert.throws(
+    () => validateBucketCompletion({ completed: '1', completed_at: '' }),
+    /Completion date is required/,
+  );
+  assert.throws(
+    () => validateBucketCompletion({ completed: 'yes', completed_at: '2026-07-27' }),
+    /Completion status is invalid/,
+  );
 });
 
 test('backup names are allowlisted and stay inside the backup directory', () => {

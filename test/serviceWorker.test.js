@@ -30,8 +30,8 @@ function response(body, {
 
 function createWorkerHarness(options = {}) {
   const cacheData = options.cacheData || new Map();
-  if (!cacheData.has('gbagl-public-v3')) {
-    cacheData.set('gbagl-public-v3', new Map([
+  if (!cacheData.has('gbagl-public-v4')) {
+    cacheData.set('gbagl-public-v4', new Map([
       ['/offline.html', response('safe offline shell', { status: 503 })],
     ]));
   }

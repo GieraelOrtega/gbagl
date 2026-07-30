@@ -8,14 +8,14 @@
   const MEDIA_OPT_IN = 'media-v1';
   const PUBLIC_SHELL_PATHS = Object.freeze([
     '/offline.html',
-    '/css/style.css?v=timeline-photo-1',
+    '/css/style.css?v=completed-bucket-2',
     '/js/lock.js',
-    '/js/pwa.js?v=timeline-photo-1',
-    '/js/pwaPolicy.js?v=timeline-photo-1',
+    '/js/pwa.js?v=completed-bucket-2',
+    '/js/pwaPolicy.js?v=completed-bucket-2',
     '/js/theme.js',
-    '/manifest.webmanifest?v=timeline-photo-1',
-    '/icons/icon-192.png?v=timeline-photo-1',
-    '/icons/icon-512.png?v=timeline-photo-1',
+    '/manifest.webmanifest?v=completed-bucket-2',
+    '/icons/icon-192.png?v=completed-bucket-2',
+    '/icons/icon-512.png?v=completed-bucket-2',
   ]);
 
   function isPrivateSnapshotPath(pathname) {
