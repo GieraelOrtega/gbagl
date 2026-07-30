@@ -15,6 +15,11 @@ function exportError(res, error) {
   });
 }
 
+function exportFilename(extension) {
+  const date = new Date().toISOString().slice(0, 10);
+  return `our-gbagl-keepsake-${date}.${extension}`;
+}
+
 function createExportRouter(exportService) {
   const router = express.Router();
   const limiter = rateLimit({
@@ -43,7 +48,7 @@ function createExportRouter(exportService) {
       const pdf = await exportService.createPdf();
       res.set({
         'Cache-Control': 'private, no-store',
-        'Content-Disposition': 'attachment; filename="gbagl-keepsake.pdf"',
+        'Content-Disposition': `attachment; filename="${exportFilename('pdf')}"`,
         'Content-Length': pdf.length,
         'Content-Type': 'application/pdf',
         'X-Content-Type-Options': 'nosniff',
@@ -59,7 +64,7 @@ function createExportRouter(exportService) {
       const zip = await exportService.createZip();
       res.set({
         'Cache-Control': 'private, no-store',
-        'Content-Disposition': 'attachment; filename="gbagl-keepsake.zip"',
+        'Content-Disposition': `attachment; filename="${exportFilename('zip')}"`,
         'Content-Length': zip.length,
         'Content-Type': 'application/zip',
         'X-Content-Type-Options': 'nosniff',
@@ -73,4 +78,4 @@ function createExportRouter(exportService) {
   return router;
 }
 
-module.exports = { createExportRouter, exportError };
+module.exports = { createExportRouter, exportError, exportFilename };

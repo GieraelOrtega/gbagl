@@ -1,7 +1,10 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { PassThrough } = require('stream');
 const { ZipArchive } = require('archiver');
+const bidi = require('bidi-js')();
+const fontkit = require('fontkit');
 const PDFDocument = require('pdfkit');
 const { PNG } = require('pngjs');
 const { getPool, isDbAvailable } = require('../db');
@@ -10,7 +13,7 @@ const { detectImageType, safeUploadPath } = require('../lib/media');
 const { timelinePhotoDetails: resolveTimelinePhotoDetails } = require('../lib/timelinePhoto');
 const { withMediaOperation } = require('./mediaCoordinator');
 
-const EXPORT_SCHEMA_VERSION = 2;
+const EXPORT_SCHEMA_VERSION = 3;
 const MAX_EXPORT_PHOTOS = 500;
 const MAX_MEDIA_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_TOTAL_MEDIA_BYTES = 128 * 1024 * 1024;
@@ -76,19 +79,39 @@ function extensionFor(mediaType) {
   }[mediaType] || null;
 }
 
-function mediaArchiveName(photo) {
-  const extension = extensionFor(photo.media_type);
-  if (
-    !Number.isSafeInteger(Number(photo.id))
-    || Number(photo.id) <= 0
-    || !Number.isSafeInteger(Number(photo.journal_entry_id))
-    || Number(photo.journal_entry_id) <= 0
-    || !extension
-  ) {
-    throw new Error('Invalid photo export metadata');
-  }
-  return safeArchiveName(
-    `media/journal/${String(photo.journal_entry_id).padStart(6, '0')}/photo-${String(photo.id).padStart(6, '0')}.${extension}`,
+function archiveSlug(value, fallback) {
+  const slug = normalizeUserText(value)
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64)
+    .replace(/-+$/g, '');
+  return slug || fallback;
+}
+
+function uniqueArchiveName(label, extension, usedNames = new Set()) {
+  if (!extension) throw new Error('Invalid photo export metadata');
+  const base = archiveSlug(label, 'keepsake-photo');
+  let suffix = 1;
+  let candidate;
+  do {
+    candidate = safeArchiveName(
+      `Photos/${base}${suffix === 1 ? '' : `-${suffix}`}.${extension}`,
+    );
+    suffix += 1;
+  } while (usedNames.has(candidate.toLowerCase()));
+  usedNames.add(candidate.toLowerCase());
+  return candidate;
+}
+
+function mediaArchiveName(photo, usedNames) {
+  return uniqueArchiveName(
+    [photo.photo_date, photo.caption || 'journal-photo'].filter(Boolean).join('-'),
+    extensionFor(photo.media_type),
+    usedNames,
   );
 }
 
@@ -98,12 +121,7 @@ function timelineMediaDetails(config, milestone) {
     || Number(milestone.id) <= 0
   ) throw new Error('Invalid timeline photo metadata');
   const details = resolveTimelinePhotoDetails(config, milestone);
-  return {
-    ...details,
-    archivePath: safeArchiveName(
-      `media/timeline/milestone-${String(milestone.id).padStart(6, '0')}.${details.extension}`,
-    ),
-  };
+  return details;
 }
 
 function hasExpectedTimelineSignature(buffer, mediaType) {
@@ -216,7 +234,6 @@ async function loadExportMedia(config, photos, timeline, dependencies = {}) {
   let totalBytes = 0;
   const media = [];
   for (const photo of photos) {
-    const archivePath = mediaArchiveName(photo);
     try {
       const filePath = resolveMediaPath(config, photo);
       const file = await inspectFile(filePath, mediaRoot(config, photo));
@@ -241,7 +258,7 @@ async function loadExportMedia(config, photos, timeline, dependencies = {}) {
       ) throw new Error('Keepsake media exceeds the total export limit');
       totalBytes += buffer.length;
       media.push({
-        archivePath,
+        archivePath: null,
         buffer,
         kind: 'journal-photo',
         mediaType: photo.media_type,
@@ -251,7 +268,7 @@ async function loadExportMedia(config, photos, timeline, dependencies = {}) {
     } catch (error) {
       if (/total export limit|inspection limit|limited to/.test(error.message)) throw error;
       media.push({
-        archivePath,
+        archivePath: null,
         buffer: null,
         kind: 'journal-photo',
         mediaType: photo.media_type,
@@ -286,6 +303,7 @@ async function loadExportMedia(config, photos, timeline, dependencies = {}) {
       totalBytes += buffer.length;
       media.push({
         ...details,
+        archivePath: null,
         buffer,
         kind: 'timeline',
         record: milestone,
@@ -293,10 +311,8 @@ async function loadExportMedia(config, photos, timeline, dependencies = {}) {
       });
     } catch (error) {
       if (/total export limit|inspection limit|limited to/.test(error.message)) throw error;
-      const archivePath = details?.archivePath
-        || safeArchiveName(`media/timeline/milestone-${String(milestone.id).padStart(6, '0')}.missing`);
       media.push({
-        archivePath,
+        archivePath: null,
         buffer: null,
         kind: 'timeline',
         mediaType: details?.mediaType || 'application/octet-stream',
@@ -305,7 +321,145 @@ async function loadExportMedia(config, photos, timeline, dependencies = {}) {
       });
     }
   }
-  return media;
+  return assignMediaArchivePaths(media);
+}
+
+function assignMediaArchivePaths(media) {
+  const usedNames = new Set();
+  const contentPaths = new Map();
+  return media.map((item) => {
+    if (!item.buffer) return { ...item, archivePath: null };
+    const digest = crypto
+      .createHash('sha256')
+      .update(item.mediaType || '')
+      .update('\0')
+      .update(item.buffer)
+      .digest('hex');
+    let archivePath = contentPaths.get(digest);
+    if (!archivePath) {
+      archivePath = item.kind === 'timeline'
+        ? uniqueArchiveName(
+          [item.record.milestone_date, item.record.title || 'timeline-photo']
+            .filter(Boolean)
+            .join('-'),
+          extensionFor(item.mediaType)
+            || String(item.extension || '').replace(/[^a-z0-9]/gi, '').toLowerCase(),
+          usedNames,
+        )
+        : mediaArchiveName(item.record, usedNames);
+      contentPaths.set(digest, archivePath);
+    }
+    return { ...item, archivePath };
+  });
+}
+
+const MOJIBAKE_REPLACEMENTS = Object.freeze([
+  ['\u00e2\u20ac\u00a8', '\n'],
+  ['\u00e2\u20ac\u00a9', '\n'],
+  ['\u00e2\u20ac\u02dc', '\u2018'],
+  ['\u00e2\u20ac\u2122', '\u2019'],
+  ['\u00e2\u20ac\u0153', '\u201c'],
+  ['\u00e2\u20ac\u009d', '\u201d'],
+  ['\u00e2\u20ac\ufffd', '\u201d'],
+  ['\u00e2\u20ac\u201c', '\u2013'],
+  ['\u00e2\u20ac\u201d', '\u2014'],
+  ['\u00e2\u20ac\u00a6', '\u2026'],
+  ['\u00c2\u00a0', '\u00a0'],
+]);
+
+const CP1252_BYTES = new Map([
+  [0x20ac, 0x80], [0x201a, 0x82], [0x0192, 0x83], [0x201e, 0x84],
+  [0x2026, 0x85], [0x2020, 0x86], [0x2021, 0x87], [0x02c6, 0x88],
+  [0x2030, 0x89], [0x0160, 0x8a], [0x2039, 0x8b], [0x0152, 0x8c],
+  [0x017d, 0x8e], [0x2018, 0x91], [0x2019, 0x92], [0x201c, 0x93],
+  [0x201d, 0x94], [0x2022, 0x95], [0x2013, 0x96], [0x2014, 0x97],
+  [0x02dc, 0x98], [0x2122, 0x99], [0x0161, 0x9a], [0x203a, 0x9b],
+  [0x0153, 0x9c], [0x017e, 0x9e], [0x0178, 0x9f],
+]);
+
+function cp1252Byte(character) {
+  const codePoint = character.codePointAt(0);
+  if (codePoint <= 0xff) return codePoint;
+  return CP1252_BYTES.get(codePoint) ?? null;
+}
+
+function repairMojibake(value) {
+  let text = value;
+  for (const [artifact, replacement] of MOJIBAKE_REPLACEMENTS) {
+    text = text.split(artifact).join(replacement);
+  }
+  let repaired = '';
+  for (let index = 0; index < text.length; index += 1) {
+    const firstCharacter = String.fromCodePoint(text.codePointAt(index));
+    const first = cp1252Byte(firstCharacter);
+    const sequenceLength = first >= 0xc2 && first <= 0xdf
+      ? 2
+      : first >= 0xe0 && first <= 0xef
+        ? 3
+        : first >= 0xf0 && first <= 0xf4
+          ? 4
+          : 0;
+    if (sequenceLength && index + sequenceLength <= text.length) {
+      const bytes = [first];
+      let consumedUnits = firstCharacter.length;
+      for (let offset = 1; offset < sequenceLength; offset += 1) {
+        const character = String.fromCodePoint(text.codePointAt(index + consumedUnits));
+        const byte = cp1252Byte(character);
+        if (byte === null || byte < 0x80 || byte > 0xbf) break;
+        bytes.push(byte);
+        consumedUnits += character.length;
+      }
+      if (bytes.length === sequenceLength) {
+        const decoded = Buffer.from(bytes).toString('utf8');
+        if (!decoded.includes('\ufffd')) {
+          repaired += decoded;
+          index += consumedUnits - 1;
+          continue;
+        }
+      }
+    }
+    repaired += firstCharacter;
+    index += firstCharacter.length - 1;
+  }
+  return repaired;
+}
+
+function normalizeUserTextPass(value) {
+  let text = repairMojibake(value.normalize('NFC'))
+    .normalize('NFC')
+    .replace(/\r\n?|\u0085|\u2028|\u2029/g, '\n');
+  text = text.replace(/(^|\n)[\t ]*\u00d0[\t ]*(?=\n|$)/g, '$1');
+  return text.replace(
+    /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u200b\u200e\u200f\u202a-\u202e\u2060\u2066-\u2069\ufeff]/g,
+    '',
+  );
+}
+
+function normalizeUserText(value) {
+  let text = String(value ?? '');
+  let normalized = normalizeUserTextPass(text);
+  while (normalized !== text) {
+    text = normalized;
+    normalized = normalizeUserTextPass(text);
+  }
+  return normalized;
+}
+
+function normalizedOrNull(value) {
+  const normalized = normalizeUserText(value);
+  return normalized === '' ? null : normalized;
+}
+
+function portablePhoto(item, expected) {
+  if (!expected) return null;
+  if (!item || item.status !== 'included' || !item.archivePath) {
+    return { status: 'unavailable' };
+  }
+  return {
+    status: 'available',
+    file: item.archivePath,
+    mediaType: item.mediaType,
+  };
 }
 
 function publicExportData(data, media, generatedAt) {
@@ -316,43 +470,61 @@ function publicExportData(data, media, generatedAt) {
     .filter((item) => item.kind === 'timeline')
     .map((item) => [Number(item.record.id), item]));
   return {
-    schemaVersion: EXPORT_SCHEMA_VERSION,
-    generatedAt: generatedAt.toISOString(),
-    settings: data.settings,
-    timeline: data.timeline.map(({ photo, ...milestone }) => {
-      const item = timelineStatus.get(Number(milestone.id));
-      return {
-        ...milestone,
-        archive_path: item?.archivePath || null,
-        media_status: item?.status || null,
-        media_type: item?.mediaType || null,
-      };
-    }),
+    formatVersion: EXPORT_SCHEMA_VERSION,
+    createdAt: generatedAt.toISOString(),
+    relationship: {
+      partners: [
+        normalizeUserText(data.settings.partner_one_name) || 'Partner One',
+        normalizeUserText(data.settings.partner_two_name) || 'Partner Two',
+      ],
+      anniversary: normalizedOrNull(data.settings.anniversary_date),
+      timezone: normalizedOrNull(data.settings.timezone),
+    },
+    timeline: data.timeline.map((milestone) => ({
+      date: normalizeUserText(milestone.milestone_date),
+      title: normalizeUserText(milestone.title),
+      description: normalizeUserText(milestone.description),
+      emoji: normalizeUserText(milestone.emoji),
+      photo: portablePhoto(
+        timelineStatus.get(Number(milestone.id)),
+        Boolean(milestone.photo),
+      ),
+    })),
     journals: data.journals.map((journal) => ({
-      ...journal,
+      date: normalizeUserText(journal.entry_date),
+      title: normalizeUserText(journal.title),
+      body: normalizeUserText(journal.body),
       photos: data.photos
         .filter((photo) => Number(photo.journal_entry_id) === Number(journal.id))
         .map((photo) => {
           const item = photoStatus.get(Number(photo.id));
           return {
-            id: photo.id,
-            milestone_id: photo.milestone_id,
-            caption: photo.caption,
-            photo_date: photo.photo_date,
-            display_order: photo.display_order,
-            media_type: photo.media_type,
-            archive_path: item.archivePath,
-            media_status: item.status,
+            caption: normalizeUserText(photo.caption),
+            date: normalizeUserText(photo.photo_date),
+            ...portablePhoto(item, true),
           };
         }),
     })),
-    completedBucketItems: data.completedBucketItems,
-    events: data.events,
+    bucketMemories: data.completedBucketItems.map((item) => ({
+      title: normalizeUserText(item.title),
+      description: normalizeUserText(item.description),
+      category: normalizeUserText(item.category),
+      targetDate: normalizeUserText(item.target_date),
+      completedDate: normalizeUserText(item.completed_at),
+      memory: normalizeUserText(item.memory),
+    })),
+    sharedEvents: data.events.map((item) => ({
+      title: normalizeUserText(item.title),
+      date: normalizeUserText(item.event_at),
+      reminder: normalizeUserText(item.reminder_at),
+      notes: normalizeUserText(item.notes),
+      completed: Boolean(Number(item.is_completed)),
+    })),
   };
 }
 
 function escapeHtml(value) {
-  return String(value ?? '').replace(/[&<>"']/g, (character) => ({
+  return normalizeUserText(value).replace(/[&<>"']/g, (character) => ({
     '&': '&amp;',
     '<': '&lt;',
     '>': '&gt;',
@@ -361,37 +533,509 @@ function escapeHtml(value) {
   }[character]));
 }
 
-function htmlList(items, render) {
-  return items.length
-    ? `<div class="list">${items.map(render).join('')}</div>`
-    : '<p class="empty">None recorded.</p>';
+function splitParagraphs(value) {
+  return normalizeUserText(value)
+    .split(/\n[\t ]*\n+/)
+    .filter((paragraph) => /\S/.test(paragraph));
+}
+
+function journalLetterParts(value) {
+  const paragraphs = splitParagraphs(value);
+  const salutation = paragraphs.length
+    && /^(?:dear|dearest|my dear|hello|hi|to)\b/i.test(paragraphs[0].trim())
+    ? [paragraphs.shift()]
+    : [];
+  let signoff = [];
+  const signoffPattern = /^(?:all my love|always|forever|love|lovingly|with love|yours)\b/i;
+  for (let index = Math.max(0, paragraphs.length - 2); index < paragraphs.length; index += 1) {
+    if (signoffPattern.test(paragraphs[index].trim())) {
+      signoff = paragraphs.splice(index);
+      break;
+    }
+  }
+  return { salutation, body: paragraphs, signoff };
+}
+
+function validTimeZone(value) {
+  const timeZone = normalizeUserText(value) || 'UTC';
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone }).format(0);
+    return timeZone;
+  } catch (error) {
+    if (error instanceof RangeError) return 'UTC';
+    throw error;
+  }
+}
+
+function formatDisplayDate(value, includeTime = false, timeZone = 'UTC') {
+  const text = normalizeUserText(value);
+  if (!text) return '';
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  const timestamp = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/
+    .test(text);
+  if (!dateOnly && !timestamp) return text;
+  const parsed = dateOnly
+    ? new Date(Date.UTC(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3])))
+    : new Date(text);
+  if (Number.isNaN(parsed.getTime())) return text;
+  if (
+    dateOnly
+    && (
+      parsed.getUTCFullYear() !== Number(dateOnly[1])
+      || parsed.getUTCMonth() !== Number(dateOnly[2]) - 1
+      || parsed.getUTCDate() !== Number(dateOnly[3])
+    )
+  ) return text;
+  return new Intl.DateTimeFormat('en-US', includeTime ? {
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    month: 'long',
+    timeZone: validTimeZone(timeZone),
+    year: 'numeric',
+  } : {
+    day: 'numeric',
+    month: 'long',
+    timeZone: dateOnly ? 'UTC' : validTimeZone(timeZone),
+    year: 'numeric',
+  }).format(parsed);
+}
+
+function htmlParagraphs(paragraphs, className = '') {
+  return paragraphs.map((paragraph) => (
+    `<p${className ? ` class="${className}"` : ''}>${
+      escapeHtml(paragraph).replace(/\t/g, '&#9;').replace(/\n/g, '<br>')
+    }</p>`
+  )).join('');
+}
+
+function htmlPhoto(photo, caption) {
+  if (!photo) return '';
+  if (photo.status !== 'available') {
+    return '<p class="photo-note">This photo was unavailable when the keepsake was created.</p>';
+  }
+  if (photo.mediaType === 'image/svg+xml') {
+    return '<p class="photo-note">A photo belongs with this moment but is not shown on the printable page.</p>';
+  }
+  const safeCaption = normalizeUserText(caption) || 'A shared moment';
+  return `<figure><img src="${escapeHtml(photo.file)}" alt="${escapeHtml(safeCaption)}">`
+    + `<figcaption>${escapeHtml(safeCaption)}</figcaption></figure>`;
+}
+
+function htmlSection(title, introduction, items, emptyMessage, renderItem) {
+  return `<section class="chapter"><header class="chapter__header"><p class="eyebrow">${
+    items.length === 1 ? '1 memory' : `${items.length} memories`
+  }</p><h2>${escapeHtml(title)}</h2><p>${escapeHtml(introduction)}</p></header>${
+    items.length
+      ? `<div class="entries">${items.map(renderItem).join('')}</div>`
+      : `<p class="empty">${escapeHtml(emptyMessage)}</p>`
+  }</section>`;
 }
 
 function buildPrintableHtml(exportData) {
-  const names = [
-    exportData.settings.partner_one_name || 'Partner One',
-    exportData.settings.partner_two_name || 'Partner Two',
-  ];
+  const [first, second] = exportData.relationship.partners;
+  const anniversary = formatDisplayDate(exportData.relationship.anniversary);
+  const timeZone = exportData.relationship.timezone;
+  const created = formatDisplayDate(exportData.createdAt, false, timeZone);
   return `<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<title>GBAGL Keepsake</title><style>
-body{font:16px/1.55 Georgia,serif;color:#3d2a2f;max-width:900px;margin:auto;padding:32px}
-h1,h2{color:#c94d60}h1{text-align:center}.meta{text-align:center;color:#8b6070}
-.item{break-inside:avoid;border-top:1px solid #f5d0d8;padding:14px 0}.photo{max-width:100%;max-height:520px}
-.caption,.empty{color:#8b6070}@media print{body{max-width:none}.item{page-break-inside:avoid}}
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Our GBAGL Keepsake</title><style>
+:root{color-scheme:light;--ink:#3d2a2f;--muted:#825f69;--rose:#bd4960;--blush:#fbf3f4;--line:#ead5da}
+*{box-sizing:border-box}html{background:#f6eeee}body{max-width:880px;margin:0 auto;background:#fff;color:var(--ink);font:17px/1.7 Georgia,"Times New Roman",serif}
+.cover{min-height:100vh;padding:12vh 8vw;display:grid;place-content:center;text-align:center;background:linear-gradient(145deg,#fff 25%,var(--blush));border-bottom:8px solid var(--rose)}
+.cover__rule{width:76px;border:0;border-top:2px solid var(--rose);margin:24px auto}.eyebrow{margin:0 0 8px;color:var(--rose);font:700 12px/1.3 Arial,sans-serif;letter-spacing:.16em;text-transform:uppercase}
+h1,h2,h3{font-family:Georgia,"Times New Roman",serif;line-height:1.14}h1{margin:0;font-size:clamp(42px,9vw,74px);font-weight:400}
+.cover__names{margin:18px 0 0;font-size:clamp(21px,4vw,30px)}.cover__meta{color:var(--muted);font-size:14px}
+.keepsake{padding:64px clamp(24px,7vw,72px)}.chapter{margin:0 0 76px}.chapter__header{border-bottom:2px solid var(--rose);padding-bottom:18px;margin-bottom:10px}
+.chapter__header h2{font-size:34px;margin:0 0 8px;font-weight:400}.chapter__header>p:last-child{margin:0;color:var(--muted)}
+.entry{padding:30px 0;border-bottom:1px solid var(--line)}.entry:last-child{border-bottom:0}.entry__date{margin:0 0 5px;color:var(--rose);font:700 12px/1.4 Arial,sans-serif;letter-spacing:.09em;text-transform:uppercase}
+.entry h3{font-size:24px;margin:0 0 14px}.entry__emoji{margin-right:6px}.entry p{margin:0 0 13px}.letter{max-width:660px}
+.letter__salutation,.letter__signoff{font-style:italic}.letter__salutation{margin-bottom:20px}.letter__signoff{margin-top:24px}
+figure{margin:24px auto 8px;break-inside:avoid;page-break-inside:avoid;text-align:center}img{display:block;max-width:100%;max-height:680px;width:auto;height:auto;margin:auto;border-radius:4px}
+figcaption{margin-top:9px;color:var(--muted);font-size:14px;font-style:italic}.photo-note,.empty{padding:18px 20px;background:var(--blush);color:var(--muted);font-style:italic;border-left:3px solid var(--line)}
+.photo-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr));gap:26px}.photo-grid figure{margin-top:12px}
+@media(max-width:600px){body{font-size:16px}.cover{padding:14vh 24px}.keepsake{padding:46px 22px}.chapter{margin-bottom:58px}.chapter__header h2{font-size:30px}.entry h3{font-size:22px}}
+@page{margin:.7in}@media print{html,body{background:#fff;max-width:none}.cover{min-height:9.5in;break-after:page;page-break-after:always;border-bottom:0}.keepsake{padding:0}.chapter{break-before:page;page-break-before:always}.chapter:first-child{break-before:auto;page-break-before:auto}.chapter__header,.entry h3,.entry__date{break-after:avoid;page-break-after:avoid}.entry{break-inside:auto}.photo-note,.empty{background:#fff}}
 </style></head><body>
-<h1>${escapeHtml(names[0])} &amp; ${escapeHtml(names[1])}</h1>
-<p class="meta">GBAGL relationship keepsake${exportData.settings.anniversary_date
-    ? ` · Anniversary ${escapeHtml(exportData.settings.anniversary_date)}` : ''}</p>
-<h2>Timeline</h2>${htmlList(exportData.timeline, (item) => `<article class="item"><strong>${escapeHtml(item.milestone_date)} · ${escapeHtml(item.title)}</strong><p>${escapeHtml(item.description)}</p>${item.archive_path ? (item.media_status === 'included' && item.media_type !== 'image/svg+xml' ? `<img class="photo" src="${escapeHtml(item.archive_path)}" alt="">` : `<p class="empty">Timeline photo included as ${escapeHtml(item.archive_path)}.</p>`) : ''}</article>`)}
-<h2>Journal &amp; Photos</h2>${htmlList(exportData.journals, (item) => `<article class="item"><strong>${escapeHtml(item.entry_date)} · ${escapeHtml(item.title)}</strong><p>${escapeHtml(item.body).replace(/\n/g, '<br>')}</p>${htmlList(item.photos || [], (photo) => `<figure>${photo.media_status === 'included' ? `<img class="photo" src="${escapeHtml(photo.archive_path)}" alt="">` : `<p class="empty">Photo file unavailable (${escapeHtml(photo.archive_path)}).</p>`}<figcaption class="caption">${escapeHtml(photo.caption || `Photo ${photo.id}`)}</figcaption></figure>`)}</article>`)}
-<h2>Completed bucket memories</h2>${htmlList(exportData.completedBucketItems, (item) => `<article class="item"><strong>${escapeHtml(item.completed_at)} · ${escapeHtml(item.title)}</strong><p>${escapeHtml(item.memory || item.description).replace(/\n/g, '<br>')}</p></article>`)}
-<h2>Shared events</h2>${htmlList(exportData.events, (item) => `<article class="item"><strong>${escapeHtml(item.event_at)} · ${escapeHtml(item.title)}</strong><p>${escapeHtml(item.notes || '')}</p></article>`)}
+<header class="cover"><div><p class="eyebrow">A keepsake of our story</p><h1>Our GBAGL Keepsake</h1><hr class="cover__rule">
+<p class="cover__names">${escapeHtml(first)} &amp; ${escapeHtml(second)}</p>
+${anniversary ? `<p class="cover__meta">Together since ${escapeHtml(anniversary)}</p>` : ''}
+${created ? `<p class="cover__meta">Created ${escapeHtml(created)}</p>` : ''}</div></header>
+<main class="keepsake">
+${htmlSection('Our Timeline', 'The moments that shaped our story.', exportData.timeline, 'Our next Timeline moment is still waiting to be added.', (item) => `<article class="entry">
+<p class="entry__date">${escapeHtml(formatDisplayDate(item.date) || item.date || 'A moment to remember')}</p>
+<h3>${item.emoji ? `<span class="entry__emoji">${escapeHtml(item.emoji)}</span>` : ''}${escapeHtml(item.title || 'A shared moment')}</h3>
+${htmlParagraphs(splitParagraphs(item.description))}
+${htmlPhoto(item.photo, item.title)}
+</article>`)}
+${htmlSection('Letters & Journal', 'Words, reflections, and photos from along the way.', exportData.journals, 'The first Journal letter is still waiting to be written.', (item) => {
+    const letter = journalLetterParts(item.body);
+    return `<article class="entry"><p class="entry__date">${escapeHtml(formatDisplayDate(item.date) || 'Journal letter')}</p>
+<h3>${escapeHtml(item.title || 'A letter from the heart')}</h3><div class="letter">
+${htmlParagraphs(letter.salutation, 'letter__salutation')}${htmlParagraphs(letter.body)}${htmlParagraphs(letter.signoff, 'letter__signoff')}</div>
+${item.photos.length ? `<div class="photo-grid">${item.photos.map((photo) => htmlPhoto(photo, photo.caption || item.title)).join('')}</div>` : ''}
+</article>`;
+  })}
+${htmlSection('Bucket Memories', 'Adventures we dreamed about and made real.', exportData.bucketMemories, 'Completed adventures will become memories here.', (item) => `<article class="entry">
+<p class="entry__date">${escapeHtml(formatDisplayDate(item.completedDate) || 'Adventure completed')}</p><h3>${escapeHtml(item.title || 'A shared adventure')}</h3>
+${htmlParagraphs(splitParagraphs(item.memory || item.description))}
+</article>`)}
+${htmlSection('Shared Events', 'Dates and plans that belong to our story.', exportData.sharedEvents, 'There are no shared events in this keepsake yet.', (item) => `<article class="entry">
+<p class="entry__date">${escapeHtml(formatDisplayDate(item.date, true, timeZone) || 'A shared date')}</p><h3>${escapeHtml(item.title || 'Time together')}</h3>
+${htmlParagraphs(splitParagraphs(item.notes))}
+</article>`)}
+</main>
 </body></html>`;
 }
 
+const PDF_WIN_ANSI = new Set([
+  0x20ac, 0x201a, 0x0192, 0x201e, 0x2020, 0x2021, 0x02c6, 0x2030,
+  0x0160, 0x2039, 0x0152, 0x017d, 0x02dc, 0x2122, 0x0161, 0x203a,
+  0x0153, 0x017e, 0x0178, 0x2018, 0x2019, 0x201c, 0x201d, 0x2022,
+  0x2013, 0x2014,
+]);
+
+const PDF_FONT_FILES = Object.freeze({
+  KeepsakeFallback: require.resolve(
+    '@fontsource/unifont/files/unifont-latin-400-normal.woff',
+  ),
+  KeepsakeSans: require.resolve('dejavu-fonts-ttf/ttf/DejaVuSans.ttf'),
+  'KeepsakeSans-Bold': require.resolve('dejavu-fonts-ttf/ttf/DejaVuSans-Bold.ttf'),
+  'KeepsakeSans-Oblique': require.resolve(
+    'dejavu-fonts-ttf/ttf/DejaVuSans-Oblique.ttf',
+  ),
+  KeepsakeSerif: require.resolve('dejavu-fonts-ttf/ttf/DejaVuSerif.ttf'),
+  'KeepsakeSerif-Bold': require.resolve(
+    'dejavu-fonts-ttf/ttf/DejaVuSerif-Bold.ttf',
+  ),
+  'KeepsakeSerif-Italic': require.resolve(
+    'dejavu-fonts-ttf/ttf/DejaVuSerif-Italic.ttf',
+  ),
+});
+
+const PDF_FONT_CHOICES = Object.freeze({
+  Helvetica: ['Helvetica', 'KeepsakeSans', 'KeepsakeFallback'],
+  'Helvetica-Bold': ['Helvetica-Bold', 'KeepsakeSans-Bold', 'KeepsakeFallback'],
+  'Helvetica-Oblique': [
+    'Helvetica-Oblique',
+    'KeepsakeSans-Oblique',
+    'KeepsakeSans',
+    'KeepsakeFallback',
+  ],
+  'Times-Bold': [
+    'Times-Bold',
+    'KeepsakeSerif-Bold',
+    'KeepsakeSans-Bold',
+    'KeepsakeFallback',
+  ],
+  'Times-Italic': [
+    'Times-Italic',
+    'KeepsakeSerif-Italic',
+    'KeepsakeSans-Oblique',
+    'KeepsakeSans',
+    'KeepsakeFallback',
+  ],
+  'Times-Roman': ['Times-Roman', 'KeepsakeSerif', 'KeepsakeSans', 'KeepsakeFallback'],
+});
+
+const parsedPdfFonts = new Map();
+
+function pdfText(value) {
+  const normalized = normalizeUserText(value)
+    .replace(/\u00a0/g, ' ')
+    .replace(/\t/g, '    ');
+  let result = '';
+  for (const character of normalized) {
+    if (
+      /\p{Emoji_Presentation}|\p{Regional_Indicator}|\p{Emoji_Modifier}/u.test(character)
+      || character === '\ufe0f'
+      || character === '\u200d'
+      || character === '\u20e3'
+    ) continue;
+    result += character;
+  }
+  return result;
+}
+
+function builtInPdfFontSupports(value) {
+  return [...value].every((character) => {
+    const codePoint = character.codePointAt(0);
+    return character === '\n'
+      || (codePoint >= 0x20 && codePoint <= 0x7e)
+      || (codePoint >= 0xa0 && codePoint <= 0xff)
+      || PDF_WIN_ANSI.has(codePoint);
+  });
+}
+
+function embeddedPdfFontSupports(fontName, value) {
+  let font = parsedPdfFonts.get(fontName);
+  if (!font) {
+    font = fontkit.openSync(PDF_FONT_FILES[fontName]);
+    parsedPdfFonts.set(fontName, font);
+  }
+  return [...value].every((character) => (
+    character === '\n' || font.hasGlyphForCodePoint(character.codePointAt(0))
+  ));
+}
+
+function pdfFontSupports(fontName, value) {
+  return PDF_FONT_FILES[fontName]
+    ? embeddedPdfFontSupports(fontName, value)
+    : builtInPdfFontSupports(value);
+}
+
+function selectPdfFont(preferredFont, value) {
+  const text = pdfText(value);
+  const choices = PDF_FONT_CHOICES[preferredFont] || [preferredFont, 'KeepsakeFallback'];
+  return choices.find((fontName) => pdfFontSupports(fontName, text))
+    || 'KeepsakeFallback';
+}
+
+const pdfGraphemes = new Intl.Segmenter('und', { granularity: 'grapheme' });
+
+function reorderPdfRuns(runs) {
+  const oddLevels = runs.map((run) => run.level).filter((level) => level % 2 === 1);
+  if (!oddLevels.length) return runs;
+  const reordered = [...runs];
+  const highestLevel = Math.max(...runs.map((run) => run.level));
+  const lowestOddLevel = Math.min(...oddLevels);
+  for (let level = highestLevel; level >= lowestOddLevel; level -= 1) {
+    let start = -1;
+    for (let index = 0; index <= reordered.length; index += 1) {
+      if (index < reordered.length && reordered[index].level >= level) {
+        if (start === -1) start = index;
+      } else if (start !== -1) {
+        const reversed = reordered.slice(start, index).reverse();
+        reordered.splice(start, reversed.length, ...reversed);
+        start = -1;
+      }
+    }
+  }
+  return reordered;
+}
+
+function mirroredPdfGrapheme(segment, start, mirroredCharacters) {
+  let mirrored = '';
+  for (let offset = 0; offset < segment.length;) {
+    const character = String.fromCodePoint(segment.codePointAt(offset));
+    mirrored += mirroredCharacters.get(start + offset) || character;
+    offset += character.length;
+  }
+  return mirrored;
+}
+
+function linePdfFontRuns(preferredFont, line, direction) {
+  if (!line) return [];
+  const embedding = bidi.getEmbeddingLevels(line, direction);
+  const mirroredCharacters = bidi.getMirroredCharactersMap(line, embedding);
+  const logicalRuns = [];
+  for (const { segment, index } of pdfGraphemes.segment(line)) {
+    const grapheme = mirroredPdfGrapheme(segment, index, mirroredCharacters);
+    const current = logicalRuns.at(-1);
+    const neutral = [...grapheme].every((character) => (
+      /[\p{Number}\p{Punctuation}\p{Separator}\s]/u.test(character)
+    ));
+    const font = neutral && current && pdfFontSupports(current.font, grapheme)
+      ? current.font
+      : selectPdfFont(preferredFont, grapheme);
+    const level = embedding.levels[index] ?? 0;
+    if (current?.font === font && current.level === level) {
+      current.text += grapheme;
+    } else {
+      logicalRuns.push({ font, level, text: grapheme });
+    }
+  }
+  return reorderPdfRuns(logicalRuns);
+}
+
+function pdfFontRuns(preferredFont, value) {
+  const lines = pdfText(value).split('\n');
+  const runs = [];
+  lines.forEach((line, index) => {
+    const direction = pdfTextIsRtl(line) ? 'rtl' : 'ltr';
+    runs.push(...linePdfFontRuns(preferredFont, line, direction));
+    if (index < lines.length - 1) {
+      runs.push({
+        font: runs.at(-1)?.font || selectPdfFont(preferredFont, ' '),
+        level: 0,
+        text: '\n',
+      });
+    }
+  });
+  return runs.map(({ font, text }) => ({ font, text }));
+}
+
+function pdfTextIsRtl(value) {
+  const firstLine = pdfText(value).split('\n')[0];
+  if (!firstLine) return false;
+  return bidi.getEmbeddingLevels(firstLine).paragraphs[0]?.level % 2 === 1;
+}
+
+function pdfTextWidth(doc, preferredFont, value, options = {}) {
+  return pdfFontRuns(preferredFont, value).reduce((width, run) => (
+    width + doc.font(run.font).widthOfString(run.text, {
+      characterSpacing: options.characterSpacing || 0,
+    })
+  ), 0);
+}
+
+function splitLongPdfToken(doc, preferredFont, token, width, options) {
+  const chunks = [];
+  let chunk = '';
+  for (const { segment } of pdfGraphemes.segment(token)) {
+    const candidate = chunk + segment;
+    if (chunk && pdfTextWidth(doc, preferredFont, candidate, options) > width) {
+      chunks.push(chunk);
+      chunk = segment;
+    } else {
+      chunk = candidate;
+    }
+  }
+  if (chunk) chunks.push(chunk);
+  return chunks;
+}
+
+function wrapPdfLogicalLines(doc, preferredFont, value, width, options = {}) {
+  const wrapped = [];
+  for (const sourceLine of pdfText(value).split('\n')) {
+    if (!sourceLine) {
+      wrapped.push('');
+      continue;
+    }
+    let line = '';
+    for (const token of sourceLine.match(/\s+|[^\s]+/gu) || []) {
+      const candidate = line + token;
+      if (pdfTextWidth(doc, preferredFont, candidate, options) <= width) {
+        line = candidate;
+        continue;
+      }
+      if (line.trimEnd()) wrapped.push(line.trimEnd());
+      let remainder = token.trimStart();
+      if (!remainder) {
+        line = '';
+        continue;
+      }
+      const chunks = splitLongPdfToken(doc, preferredFont, remainder, width, options);
+      while (
+        chunks.length > 1
+        || (chunks.length && pdfTextWidth(doc, preferredFont, chunks[0], options) > width)
+      ) {
+        wrapped.push(chunks.shift());
+      }
+      remainder = chunks[0] || '';
+      line = remainder;
+    }
+    wrapped.push(line.trimEnd());
+  }
+  return wrapped;
+}
+
+function positionPdfLineRuns(
+  doc,
+  preferredFont,
+  line,
+  x,
+  width,
+  align,
+  options = {},
+  direction,
+) {
+  const runs = linePdfFontRuns(preferredFont, line, direction).map(({ font, text }) => ({
+    font,
+    text,
+    width: doc.font(font).widthOfString(text, {
+      characterSpacing: options.characterSpacing || 0,
+    }),
+  }));
+  const lineWidth = runs.reduce((total, run) => total + run.width, 0);
+  let cursor = x;
+  if (align === 'right') cursor += width - lineWidth;
+  if (align === 'center') cursor += (width - lineWidth) / 2;
+  return runs.map((run) => {
+    const positioned = { ...run, x: cursor };
+    cursor += run.width;
+    return positioned;
+  });
+}
+
+function writePositionedPdfText(doc, preferredFont, value, options) {
+  const startX = doc.x;
+  const width = options.width
+    ?? doc.page.width - doc.page.margins.right - startX;
+  pdfText(value).split('\n').forEach((sourceLine) => {
+    const rtl = pdfTextIsRtl(sourceLine);
+    const direction = rtl ? 'rtl' : 'ltr';
+    const align = options.align || (rtl ? 'right' : 'left');
+    const lines = wrapPdfLogicalLines(
+      doc,
+      preferredFont,
+      sourceLine,
+      width,
+      options,
+    );
+    lines.forEach((line) => {
+      const positioned = positionPdfLineRuns(
+        doc,
+        preferredFont,
+        line,
+        startX,
+        width,
+        align,
+        options,
+        direction,
+      );
+      const fonts = positioned.length
+        ? positioned.map((run) => run.font)
+        : [selectPdfFont(preferredFont, ' ')];
+      const lineHeight = Math.max(...fonts.map((font) => (
+        doc.font(font).currentLineHeight(true)
+      ))) + (options.lineGap || 0);
+      ensurePdfSpace(doc, lineHeight);
+      const y = doc.y;
+      positioned.forEach((run) => {
+        doc.font(run.font).text(run.text, run.x, y, {
+          characterSpacing: options.characterSpacing || 0,
+          features: options.features,
+          lineBreak: false,
+        });
+      });
+      doc.x = startX;
+      doc.y = y + lineHeight;
+    });
+  });
+  return doc;
+}
+
+function writePdfText(doc, preferredFont, value, options = {}) {
+  const text = pdfText(value);
+  const runs = pdfFontRuns(preferredFont, text);
+  if (!runs.length) return doc;
+  const fontCount = new Set(runs.map((run) => run.font)).size;
+  const hasRtlLine = text.split('\n').some((line) => pdfTextIsRtl(line));
+  if (fontCount === 1 && !hasRtlLine) {
+    return doc.font(runs[0].font).text(text, options);
+  }
+  return writePositionedPdfText(doc, preferredFont, text, options);
+}
+
+function pdfHeightOfString(doc, preferredFont, value, size, options) {
+  const text = pdfText(value);
+  const fonts = new Set(pdfFontRuns(preferredFont, text).map((run) => run.font));
+  if (!fonts.size) fonts.add(selectPdfFont(preferredFont, text));
+  return Math.max(...[...fonts].map((font) => (
+    doc.font(font).fontSize(size).heightOfString(text, options)
+  )));
+}
+
+function registerPdfFonts(doc) {
+  Object.entries(PDF_FONT_FILES).forEach(([name, filePath]) => {
+    doc.registerFont(name, filePath);
+  });
+}
+
 function textValue(value) {
-  return value === null || value === undefined || value === '' ? 'Not recorded' : String(value);
+  const text = pdfText(value);
+  return text === '' ? 'Not recorded' : text;
 }
 
 function assertImageDimensions(width, height) {
@@ -499,11 +1143,19 @@ async function preparePdfMedia(media, limits = {}) {
   let candidateCount = 0;
   let totalDecodedBytes = 0;
   let totalPixels = 0;
+  const preparedByPath = new Map();
   const prepared = [];
   for (const item of media) {
     const result = { ...item };
     const mediaType = item.mediaType || item.record?.media_type;
+    const reuseKey = item.buffer && item.archivePath ? item.archivePath : null;
+    if (reuseKey && preparedByPath.has(reuseKey)) {
+      Object.assign(result, preparedByPath.get(reuseKey));
+      prepared.push(result);
+      continue;
+    }
     if (!item.buffer || !['image/jpeg', 'image/png'].includes(mediaType)) {
+      if (reuseKey) preparedByPath.set(reuseKey, {});
       prepared.push(result);
       continue;
     }
@@ -538,7 +1190,9 @@ async function preparePdfMedia(media, limits = {}) {
             : 'skipped-total-pixel-budget';
         } else {
           result.pdfBuffer = preparedImage.buffer;
+          result.pdfHeight = preparedImage.height;
           result.pdfStatus = 'included';
+          result.pdfWidth = preparedImage.width;
           totalPixels += actualPixels;
           totalDecodedBytes += actualDecodedBytes;
         }
@@ -546,27 +1200,35 @@ async function preparePdfMedia(media, limits = {}) {
     } catch {
       result.pdfStatus = 'invalid-or-unsupported';
     }
+    if (reuseKey) {
+      preparedByPath.set(reuseKey, {
+        ...(result.pdfBuffer ? { pdfBuffer: result.pdfBuffer } : {}),
+        ...(result.pdfHeight ? { pdfHeight: result.pdfHeight } : {}),
+        ...(result.pdfStatus ? { pdfStatus: result.pdfStatus } : {}),
+        ...(result.pdfWidth ? { pdfWidth: result.pdfWidth } : {}),
+      });
+    }
     prepared.push(result);
   }
   return prepared;
 }
 
-function addPdfSection(doc, title, items, renderItem) {
-  doc.moveDown(0.7).font('Helvetica-Bold').fontSize(17).fillColor('#c94d60').text(title);
-  if (!items.length) {
-    doc.font('Helvetica-Oblique').fontSize(10).fillColor('#8b6070').text('None recorded.');
-    return;
-  }
-  items.forEach((item) => {
-    if (doc.y > 700) doc.addPage();
-    doc.moveDown(0.4);
-    renderItem(item);
-  });
-}
+const PDF_COLORS = Object.freeze({
+  blush: '#fbf3f4',
+  ink: '#3d2a2f',
+  line: '#ead5da',
+  muted: '#825f69',
+  rose: '#bd4960',
+  white: '#ffffff',
+});
 
 function ensurePdfSpace(doc, requiredHeight) {
   const printableBottom = doc.page.height - doc.page.margins.bottom;
-  if (doc.y + requiredHeight > printableBottom) doc.addPage();
+  if (doc.y + requiredHeight > printableBottom) {
+    doc.addPage();
+    return true;
+  }
+  return false;
 }
 
 function reservePdfItem(doc, textBlocks, imageHeight = 0) {
@@ -575,20 +1237,155 @@ function reservePdfItem(doc, textBlocks, imageHeight = 0) {
     - doc.page.margins.top
     - doc.page.margins.bottom;
   const textHeight = textBlocks.reduce((height, block) => {
-    doc.font(block.font).fontSize(block.size);
-    return height + doc.heightOfString(textValue(block.text), { width });
+    return height + pdfHeightOfString(doc, block.font, textValue(block.text), block.size, {
+      lineGap: block.lineGap || 0,
+      width,
+    }) + (block.gap || 0);
   }, 0);
-  ensurePdfSpace(doc, Math.min(printableHeight, textHeight + imageHeight + 12));
+  const requestedHeight = textHeight + imageHeight + 18;
+  const minimumOpening = Math.min(requestedHeight, 118);
+  ensurePdfSpace(
+    doc,
+    requestedHeight <= printableHeight ? requestedHeight : minimumOpening,
+  );
 }
 
 function embedPdfImage(doc, buffer, options, unavailableText) {
   try {
-    doc.image(buffer, options);
+    const { x, y, ...imageOptions } = options;
+    if (Number.isFinite(x) && Number.isFinite(y)) {
+      doc.image(buffer, x, y, imageOptions);
+    } else {
+      doc.image(buffer, imageOptions);
+    }
     return true;
   } catch {
-    doc.font('Helvetica-Oblique').fontSize(9).text(unavailableText);
+    doc.font('Helvetica-Oblique').fontSize(9).fillColor(PDF_COLORS.muted)
+      .text(unavailableText);
     return false;
   }
+}
+
+function pdfParagraphs(doc, paragraphs, options = {}) {
+  const font = options.font || 'Times-Roman';
+  const size = options.size || 11.5;
+  paragraphs.forEach((paragraph, index) => {
+    doc.fontSize(size).fillColor(options.color || PDF_COLORS.ink);
+    writePdfText(doc, font, paragraph, { lineGap: options.lineGap ?? 2.5 });
+    if (index < paragraphs.length - 1) doc.moveDown(options.gap ?? 0.65);
+  });
+}
+
+function pdfEntryHeading(doc, date, title) {
+  doc.fontSize(8.5).fillColor(PDF_COLORS.rose);
+  writePdfText(
+    doc,
+    'Helvetica-Bold',
+    pdfText(date || 'A moment to remember').toUpperCase(),
+    { characterSpacing: 0.8 },
+  );
+  doc.moveDown(0.35);
+  doc.fontSize(18).fillColor(PDF_COLORS.ink);
+  writePdfText(doc, 'Times-Bold', textValue(title || 'A shared moment'), { lineGap: 1 });
+  doc.moveDown(0.55);
+}
+
+function pdfPhotoMessage(doc, message) {
+  ensurePdfSpace(doc, 54);
+  const x = doc.page.margins.left;
+  const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  const y = doc.y;
+  doc.roundedRect(x, y, width, 42, 3).fill(PDF_COLORS.blush);
+  doc.font('Helvetica-Oblique').fontSize(9.5).fillColor(PDF_COLORS.muted)
+    .text(message, x + 14, y + 13, { width: width - 28 });
+  doc.y = y + 52;
+}
+
+function pdfImageLayout(doc, item) {
+  const availableWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  const sourceWidth = item.pdfWidth || 1;
+  const sourceHeight = item.pdfHeight || 1;
+  const portrait = sourceHeight > sourceWidth * 1.08;
+  const maxWidth = Math.min(availableWidth, portrait ? 340 : 450);
+  const maxHeight = portrait ? 370 : 285;
+  const scale = Math.min(maxWidth / sourceWidth, maxHeight / sourceHeight);
+  return {
+    height: Math.max(1, sourceHeight * scale),
+    width: Math.max(1, sourceWidth * scale),
+  };
+}
+
+function renderPdfPhoto(doc, portablePhotoData, item, caption) {
+  if (!portablePhotoData) return;
+  if (portablePhotoData.status !== 'available' || !item?.buffer) {
+    pdfPhotoMessage(doc, 'This photo was unavailable when the keepsake was created.');
+    return;
+  }
+  if (!item.pdfBuffer) {
+    const message = item.pdfStatus?.startsWith('skipped-')
+      ? 'This photo could not be placed in the PDF, but it remains in the printable keepsake.'
+      : 'This photo is preserved in the printable keepsake but could not be displayed on this page.';
+    pdfPhotoMessage(doc, message);
+    return;
+  }
+  const layout = pdfImageLayout(doc, item);
+  const captionText = normalizeUserText(caption) || 'A shared moment';
+  ensurePdfSpace(doc, layout.height + 42);
+  const contentWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  const x = doc.page.margins.left + (contentWidth - layout.width) / 2;
+  const y = doc.y;
+  const embedded = embedPdfImage(doc, item.pdfBuffer, {
+    fit: [layout.width, layout.height],
+    x,
+    y,
+  }, 'This photo could not be displayed, but its caption remains.');
+  if (embedded) {
+    doc.y = y + layout.height + 8;
+    doc.fontSize(8.5).fillColor(PDF_COLORS.muted);
+    writePdfText(doc, 'Helvetica-Oblique', captionText, {
+      align: 'center',
+      width: contentWidth,
+    });
+    doc.moveDown(0.7);
+  }
+}
+
+function addPdfSection(doc, chapter, title, introduction, items, emptyMessage, renderItem) {
+  doc.addPage();
+  doc.font('Helvetica-Bold').fontSize(8).fillColor(PDF_COLORS.rose)
+    .text(`CHAPTER ${String(chapter).padStart(2, '0')}`, {
+      characterSpacing: 1.4,
+    });
+  doc.moveDown(0.45);
+  doc.font('Times-Roman').fontSize(29).fillColor(PDF_COLORS.ink).text(pdfText(title));
+  doc.moveDown(0.3);
+  doc.font('Times-Italic').fontSize(11).fillColor(PDF_COLORS.muted)
+    .text(pdfText(introduction));
+  doc.moveDown(0.8);
+  const lineY = doc.y;
+  doc.moveTo(doc.page.margins.left, lineY)
+    .lineTo(doc.page.width - doc.page.margins.right, lineY)
+    .lineWidth(1.2)
+    .strokeColor(PDF_COLORS.rose)
+    .stroke();
+  doc.y = lineY + 18;
+  if (!items.length) {
+    pdfPhotoMessage(doc, emptyMessage);
+    return;
+  }
+  items.forEach((item, index) => {
+    if (index > 0) {
+      ensurePdfSpace(doc, 90);
+      const dividerY = doc.y + 5;
+      doc.moveTo(doc.page.margins.left, dividerY)
+        .lineTo(doc.page.width - doc.page.margins.right, dividerY)
+        .lineWidth(0.5)
+        .strokeColor(PDF_COLORS.line)
+        .stroke();
+      doc.y = dividerY + 18;
+    }
+    renderItem(item);
+  });
 }
 
 async function buildPdf(exportData, media, limits = {}) {
@@ -600,12 +1397,14 @@ async function buildPdf(exportData, media, limits = {}) {
       bufferPages: true,
       compress: false,
       info: {
-        Title: 'GBAGL Relationship Keepsake',
+        Title: 'Our GBAGL Keepsake',
         Author: 'GBAGL',
-        Subject: 'Timeline, journal moments and photos, bucket memories, and events',
+        Subject: 'A keepsake of our shared story',
       },
-      margins: { top: 54, right: 54, bottom: 58, left: 54 },
+      margins: { top: 58, right: 58, bottom: 64, left: 58 },
+      size: 'LETTER',
     });
+    registerPdfFonts(doc);
     doc.on('data', (chunk) => {
       byteLength += chunk.length;
       if (byteLength <= MAX_OUTPUT_BYTES) chunks.push(chunk);
@@ -619,129 +1418,198 @@ async function buildPdf(exportData, media, limits = {}) {
       }
     });
 
-    const first = exportData.settings.partner_one_name || 'Partner One';
-    const second = exportData.settings.partner_two_name || 'Partner Two';
-    doc.font('Times-Bold').fontSize(28).fillColor('#c94d60').text('Our GBAGL Keepsake', {
+    const [first, second] = exportData.relationship.partners;
+    doc.rect(0, 0, doc.page.width, doc.page.height).fill(PDF_COLORS.blush);
+    doc.y = 188;
+    doc.font('Helvetica-Bold').fontSize(8.5).fillColor(PDF_COLORS.rose)
+      .text('A KEEPSAKE OF OUR STORY', {
+        align: 'center',
+        characterSpacing: 1.7,
+      });
+    doc.moveDown(1.25);
+    doc.font('Times-Roman').fontSize(38).fillColor(PDF_COLORS.ink).text('Our GBAGL Keepsake', {
       align: 'center',
     });
-    doc.font('Times-Roman').fontSize(16).fillColor('#3d2a2f')
-      .text(`${first} & ${second}`, { align: 'center' });
-    doc.fontSize(10).fillColor('#8b6070').text(
-      `Anniversary: ${textValue(exportData.settings.anniversary_date)}`,
-      { align: 'center' },
+    const coverRuleY = doc.y + 20;
+    doc.moveTo(doc.page.width / 2 - 42, coverRuleY)
+      .lineTo(doc.page.width / 2 + 42, coverRuleY)
+      .lineWidth(1.3)
+      .strokeColor(PDF_COLORS.rose)
+      .stroke();
+    doc.y = coverRuleY + 26;
+    const partnerNames = `${textValue(first)} & ${textValue(second)}`;
+    doc.fontSize(21).fillColor(PDF_COLORS.ink);
+    writePdfText(doc, 'Times-Italic', partnerNames, { align: 'center' });
+    if (exportData.relationship.anniversary) {
+      doc.moveDown(0.8);
+      doc.font('Helvetica').fontSize(9.5).fillColor(PDF_COLORS.muted)
+        .text(`Together since ${pdfText(formatDisplayDate(exportData.relationship.anniversary))}`, {
+          align: 'center',
+        });
+    }
+    doc.font('Helvetica').fontSize(8.5).fillColor(PDF_COLORS.muted)
+      .text(
+        `Created ${pdfText(formatDisplayDate(
+          exportData.createdAt,
+          false,
+          exportData.relationship.timezone,
+        ))}`,
+        58,
+        doc.page.height - 82,
+        { align: 'center', lineBreak: false, width: doc.page.width - 116 },
+      );
+
+    const mediaByPath = new Map(pdfMedia
+      .filter((item) => item.archivePath)
+      .map((item) => [item.archivePath, item]));
+    const matchingMedia = (photo) => (
+      photo?.file ? mediaByPath.get(photo.file) : null
+    );
+    addPdfSection(
+      doc,
+      1,
+      'Our Timeline',
+      'The moments that shaped our story.',
+      exportData.timeline,
+      'Our next Timeline moment is still waiting to be added.',
+      (item) => {
+        const image = matchingMedia(item.photo);
+        const description = splitParagraphs(item.description);
+        const imageHeight = image?.pdfBuffer ? pdfImageLayout(doc, image).height + 42 : 54;
+        reservePdfItem(doc, [
+          { font: 'Helvetica-Bold', size: 8.5, text: formatDisplayDate(item.date) },
+          { font: 'Times-Bold', size: 18, text: item.title, gap: 6 },
+          ...(description[0]
+            ? [{ font: 'Times-Roman', size: 11.5, text: description[0], lineGap: 2.5 }]
+            : []),
+        ], imageHeight);
+        pdfEntryHeading(
+          doc,
+          formatDisplayDate(item.date) || item.date,
+          item.title || 'A shared moment',
+        );
+        pdfParagraphs(doc, description);
+        if (description.length) doc.moveDown(0.6);
+        renderPdfPhoto(doc, item.photo, image, item.title);
+      },
     );
 
-    const timelineMedia = new Map(pdfMedia
-      .filter((item) => item.kind === 'timeline')
-      .map((item) => [Number(item.record.id), item]));
-    addPdfSection(doc, 'Timeline', exportData.timeline, (item) => {
-      const image = timelineMedia.get(Number(item.id));
-      const title = `${textValue(item.milestone_date)} - ${textValue(item.title)}`;
-      reservePdfItem(doc, [
-        { font: 'Helvetica-Bold', size: 11, text: title },
-        { font: 'Helvetica', size: 10, text: item.description },
-      ], image?.pdfBuffer ? 260 : 14);
-      doc.font('Helvetica-Bold').fontSize(11).fillColor('#3d2a2f')
-        .text(title);
-      doc.font('Helvetica').fontSize(10).text(textValue(item.description));
-      if (image?.pdfBuffer) {
-        ensurePdfSpace(doc, 260);
-        embedPdfImage(doc, image.pdfBuffer, {
-          fit: [450, 260],
-          align: 'center',
-        }, 'Timeline photo could not be embedded; its caption remains in this PDF.');
-      } else if (image?.pdfStatus?.startsWith('skipped-')) {
-        doc.font('Helvetica-Oblique').fontSize(9)
-          .text('Timeline photo skipped because the PDF image safety budget was reached.');
-      } else if (image?.buffer && ['image/jpeg', 'image/png'].includes(image.mediaType)) {
-        doc.font('Helvetica-Oblique').fontSize(9)
-          .text('Timeline photo could not be embedded.');
-      } else if (image) {
-        doc.font('Helvetica-Oblique').fontSize(9)
-          .text(`${image.mediaType === 'image/webp' ? 'WebP' : 'Timeline'} photo included in ZIP as ${image.archivePath}.`);
-      }
-    });
-    const journalMedia = new Map();
-    pdfMedia
-      .filter((item) => item.kind === 'journal-photo')
-      .forEach((item) => {
-        const entryId = Number(item.record.journal_entry_id);
-        if (!journalMedia.has(entryId)) journalMedia.set(entryId, []);
-        journalMedia.get(entryId).push(item);
-      });
-    addPdfSection(doc, 'Journal & photos', exportData.journals, (item) => {
-      const title = `${textValue(item.entry_date)} - ${textValue(item.title)}`;
-      reservePdfItem(doc, [
-        { font: 'Helvetica-Bold', size: 11, text: title },
-        { font: 'Helvetica', size: 10, text: item.body },
-      ]);
-      doc.font('Helvetica-Bold').fontSize(11)
-        .text(title);
-      doc.font('Helvetica').fontSize(10).text(textValue(item.body));
-      (journalMedia.get(Number(item.id)) || []).forEach((photoItem) => {
-        const photo = photoItem.record;
-        const caption = photo.caption || `Photo ${photo.id}`;
+    addPdfSection(
+      doc,
+      2,
+      'Letters & Journal',
+      'Words, reflections, and photos from along the way.',
+      exportData.journals,
+      'The first Journal letter is still waiting to be written.',
+      (item) => {
+        const letter = journalLetterParts(item.body);
+        const opening = [...letter.salutation, ...letter.body, ...letter.signoff][0];
         reservePdfItem(doc, [
-          { font: 'Helvetica-Bold', size: 10, text: caption },
-        ], photoItem.pdfBuffer ? 300 : 14);
-        doc.font('Helvetica-Bold').fontSize(10).text(caption);
-        if (!photoItem.buffer) {
-          doc.font('Helvetica-Oblique').fontSize(9)
-            .text('Photo file was missing or unreadable.');
-        } else if (photo.media_type === 'image/webp') {
-          doc.font('Helvetica-Oblique').fontSize(9)
-            .text(`WebP photo included in ZIP as ${photoItem.archivePath}.`);
-        } else if (photoItem.pdfBuffer) {
-          ensurePdfSpace(doc, 300);
-          embedPdfImage(doc, photoItem.pdfBuffer, {
-            fit: [450, 300],
-            align: 'center',
-          }, 'Photo could not be embedded; its caption remains in this PDF.');
-        } else if (photoItem.pdfStatus?.startsWith('skipped-')) {
-          doc.font('Helvetica-Oblique').fontSize(9)
-            .text('Photo skipped because the PDF image safety budget was reached.');
-        } else {
-          doc.font('Helvetica-Oblique').fontSize(9)
-            .text('Photo could not be embedded; its caption remains in this PDF.');
+          { font: 'Helvetica-Bold', size: 8.5, text: formatDisplayDate(item.date) },
+          { font: 'Times-Bold', size: 18, text: item.title, gap: 6 },
+          ...(opening ? [{ font: 'Times-Roman', size: 11.5, text: opening, lineGap: 2.5 }] : []),
+        ]);
+        pdfEntryHeading(
+          doc,
+          formatDisplayDate(item.date) || 'Journal letter',
+          item.title || 'A letter from the heart',
+        );
+        pdfParagraphs(doc, letter.salutation, { font: 'Times-Italic', gap: 0.8 });
+        if (letter.salutation.length && (letter.body.length || letter.signoff.length)) {
+          doc.moveDown(0.7);
         }
-      });
-    });
-    addPdfSection(doc, 'Completed bucket memories', exportData.completedBucketItems, (item) => {
-      const title = `${textValue(item.completed_at)} - ${textValue(item.title)}`;
-      const body = item.memory || item.description;
-      reservePdfItem(doc, [
-        { font: 'Helvetica-Bold', size: 11, text: title },
-        { font: 'Helvetica', size: 10, text: body },
-      ]);
-      doc.font('Helvetica-Bold').fontSize(11)
-        .text(title);
-      doc.font('Helvetica').fontSize(10).text(textValue(body));
-    });
-    addPdfSection(doc, 'Shared events', exportData.events, (item) => {
-      const title = `${textValue(item.event_at)} - ${textValue(item.title)}`;
-      reservePdfItem(doc, [
-        { font: 'Helvetica-Bold', size: 11, text: title },
-        ...(item.notes ? [{ font: 'Helvetica', size: 10, text: item.notes }] : []),
-      ]);
-      doc.font('Helvetica-Bold').fontSize(11)
-        .text(title);
-      if (item.notes) doc.font('Helvetica').fontSize(10).text(item.notes);
-    });
+        pdfParagraphs(doc, letter.body);
+        if (letter.body.length && letter.signoff.length) doc.moveDown(0.9);
+        pdfParagraphs(doc, letter.signoff, { font: 'Times-Italic', gap: 0.35 });
+        if (item.body) doc.moveDown(0.8);
+        item.photos.forEach((photo) => {
+          const image = matchingMedia(photo);
+          renderPdfPhoto(doc, photo, image, photo.caption || item.title);
+        });
+      },
+    );
+
+    addPdfSection(
+      doc,
+      3,
+      'Bucket Memories',
+      'Adventures we dreamed about and made real.',
+      exportData.bucketMemories,
+      'Completed adventures will become memories here.',
+      (item) => {
+        const paragraphs = splitParagraphs(item.memory || item.description);
+        reservePdfItem(doc, [
+          { font: 'Helvetica-Bold', size: 8.5, text: formatDisplayDate(item.completedDate) },
+          { font: 'Times-Bold', size: 18, text: item.title, gap: 6 },
+          ...(paragraphs[0]
+            ? [{ font: 'Times-Roman', size: 11.5, text: paragraphs[0], lineGap: 2.5 }]
+            : []),
+        ]);
+        pdfEntryHeading(
+          doc,
+          formatDisplayDate(item.completedDate) || 'Adventure completed',
+          item.title || 'A shared adventure',
+        );
+        pdfParagraphs(doc, paragraphs);
+        doc.moveDown(0.7);
+      },
+    );
+
+    addPdfSection(
+      doc,
+      4,
+      'Shared Events',
+      'Dates and plans that belong to our story.',
+      exportData.sharedEvents,
+      'There are no shared events in this keepsake yet.',
+      (item) => {
+        const paragraphs = splitParagraphs(item.notes);
+        reservePdfItem(doc, [
+          {
+            font: 'Helvetica-Bold',
+            size: 8.5,
+            text: formatDisplayDate(item.date, true, exportData.relationship.timezone),
+          },
+          { font: 'Times-Bold', size: 18, text: item.title, gap: 6 },
+          ...(paragraphs[0]
+            ? [{ font: 'Times-Roman', size: 11.5, text: paragraphs[0], lineGap: 2.5 }]
+            : []),
+        ]);
+        pdfEntryHeading(
+          doc,
+          formatDisplayDate(item.date, true, exportData.relationship.timezone) || 'A shared date',
+          item.title || 'Time together',
+        );
+        pdfParagraphs(doc, paragraphs);
+        doc.moveDown(0.7);
+      },
+    );
 
     const range = doc.bufferedPageRange();
-    for (let index = range.start; index < range.start + range.count; index += 1) {
+    const numberedPages = Math.max(0, range.count - 1);
+    for (let index = range.start + 1; index < range.start + range.count; index += 1) {
       doc.switchToPage(index);
-      doc.font('Helvetica').fontSize(8).fillColor('#8b6070')
+      const footerY = doc.page.height - 36;
+      doc.moveTo(doc.page.margins.left, footerY - 8)
+        .lineTo(doc.page.width - doc.page.margins.right, footerY - 8)
+        .lineWidth(0.45)
+        .strokeColor(PDF_COLORS.line)
+        .stroke();
+      const bottomMargin = doc.page.margins.bottom;
+      doc.page.margins.bottom = 0;
+      doc.font('Helvetica').fontSize(7.5).fillColor(PDF_COLORS.muted)
         .text(
-          `Page ${index + 1} of ${range.count}`,
-          54,
-          doc.page.height - doc.page.margins.bottom - 10,
+          `OUR GBAGL KEEPSAKE  |  ${index} OF ${numberedPages}`,
+          doc.page.margins.left,
+          footerY,
           {
             align: 'center',
+            characterSpacing: 0.6,
             lineBreak: false,
-            width: doc.page.width - 108,
+            width: doc.page.width - doc.page.margins.left - doc.page.margins.right,
           },
         );
+      doc.page.margins.bottom = bottomMargin;
     }
     doc.end();
   });
@@ -752,49 +1620,60 @@ function collectArchive(archive) {
     const output = new PassThrough();
     const chunks = [];
     let byteLength = 0;
+    let settled = false;
+    const fail = (error) => {
+      if (settled) return;
+      settled = true;
+      if (typeof archive.abort === 'function') archive.abort();
+      if (!output.destroyed) output.destroy();
+      reject(error);
+    };
     output.on('data', (chunk) => {
       byteLength += chunk.length;
-      if (byteLength <= MAX_OUTPUT_BYTES) chunks.push(chunk);
+      if (byteLength > MAX_OUTPUT_BYTES) {
+        fail(new Error('ZIP export exceeded the output limit'));
+        return;
+      }
+      chunks.push(chunk);
     });
     output.on('end', () => {
-      if (byteLength > MAX_OUTPUT_BYTES) {
-        reject(new Error('ZIP export exceeded the output limit'));
-      } else {
-        resolve(Buffer.concat(chunks));
-      }
+      if (settled) return;
+      settled = true;
+      resolve(Buffer.concat(chunks));
     });
-    output.on('error', reject);
-    archive.on('error', reject);
+    output.on('error', fail);
+    archive.on('error', fail);
     archive.pipe(output);
   });
 }
 
 async function buildZip(exportData, media) {
+  const mediaToArchive = [];
+  const archivedPaths = new Set();
+  media.filter((item) => item.buffer && item.archivePath).forEach((item) => {
+    const archivePath = safeArchiveName(item.archivePath);
+    if (archivedPaths.has(archivePath)) return;
+    archivedPaths.add(archivePath);
+    mediaToArchive.push({ archivePath, buffer: item.buffer });
+  });
   const archive = new ZipArchive({ zlib: { level: 9 } });
   const result = collectArchive(archive);
-  archive.append(buildPrintableHtml(exportData), {
-    name: safeArchiveName('keepsake.html'),
-  });
-  archive.append(JSON.stringify(exportData, null, 2), {
-    name: safeArchiveName('data.json'),
-  });
-  archive.append(JSON.stringify({
-    schemaVersion: EXPORT_SCHEMA_VERSION,
-    generatedAt: exportData.generatedAt,
-    contents: ['keepsake.html', 'data.json', 'media/'],
-    missingMedia: media
-      .filter((item) => item.status !== 'included')
-      .map((item) => ({
-        kind: item.kind,
-        recordId: item.record.id,
-        archivePath: item.archivePath,
-      })),
-  }, null, 2), { name: safeArchiveName('manifest.json') });
-  media.filter((item) => item.buffer).forEach((item) => {
-    archive.append(item.buffer, { name: item.archivePath });
-  });
-  await archive.finalize();
-  return result;
+  try {
+    archive.append(buildPrintableHtml(exportData), {
+      name: safeArchiveName('Keepsake.html'),
+    });
+    archive.append(JSON.stringify(exportData, null, 2), {
+      name: safeArchiveName('Keepsake.json'),
+    });
+    mediaToArchive.forEach((item) => {
+      archive.append(item.buffer, { name: item.archivePath });
+    });
+    await archive.finalize();
+    return await result;
+  } catch (error) {
+    if (typeof archive.abort === 'function') archive.abort();
+    throw error;
+  }
 }
 
 function createKeepsakeExportService(config, dependencies = {}) {
@@ -834,11 +1713,22 @@ module.exports = {
   createKeepsakeExportService,
   embedPdfImage,
   ensurePdfSpace,
+  formatDisplayDate,
+  journalLetterParts,
   loadKeepsakeData,
   loadExportMedia,
   mediaArchiveName,
+  normalizeUserText,
+  pdfFontRuns,
+  pdfImageLayout,
+  pdfText,
+  positionPdfLineRuns,
   preparePdfMedia,
+  publicExportData,
   reservePdfItem,
   safePdfImage,
   safeArchiveName,
+  selectPdfFont,
+  wrapPdfLogicalLines,
+  writePdfText,
 };

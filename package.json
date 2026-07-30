@@ -12,11 +12,15 @@
     "test": "node --test"
   },
   "dependencies": {
+    "@fontsource/unifont": "^5.3.0",
     "archiver": "^8.0.0",
+    "bidi-js": "^1.0.3",
+    "dejavu-fonts-ttf": "^2.37.3",
     "dotenv": "^16.4.5",
     "ejs": "^6.0.1",
     "express": "^4.22.2",
     "express-rate-limit": "^8.5.2",
+    "fontkit": "^2.0.4",
     "heic-convert": "^2.1.0",
     "multer": "^2.2.0",
     "mysql2": "^3.11.3",
