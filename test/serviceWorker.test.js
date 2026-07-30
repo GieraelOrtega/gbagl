@@ -375,23 +375,29 @@ test('authenticated snapshot refreshes preserve the active private cache', async
 
 test('authorization explicitly caches requested private media for the first offline view', async () => {
   const harness = createWorkerHarness();
-  const mediaUrl = 'https://gba.gl/media/home-photo';
-  harness.state.fetchImpl = async (request) => (
-    request.url === mediaUrl
-      ? response('home photo', {
+  const homeMediaUrl = 'https://gba.gl/media/home-photo';
+  const timelineMediaUrl = 'https://gba.gl/timeline/photos/7/content';
+  harness.state.fetchImpl = async (request) => {
+    if ([homeMediaUrl, timelineMediaUrl].includes(request.url)) {
+      return response(
+      request.url === homeMediaUrl ? 'home photo' : 'timeline photo',
+      {
         cacheOptIn: policy.MEDIA_OPT_IN,
         contentType: 'image/jpeg',
-      })
-      : response('home snapshot', { cacheOptIn: policy.SNAPSHOT_OPT_IN })
-  );
+      },
+      );
+    }
+    return response('home snapshot', { cacheOptIn: policy.SNAPSHOT_OPT_IN });
+  };
   await harness.hooks.authorizePrivateCache(
     'https://gba.gl/',
     () => {},
-    [mediaUrl, 'https://evil.example/media/home-photo'],
+    [homeMediaUrl, timelineMediaUrl, 'https://evil.example/media/home-photo'],
   );
 
   const privateCache = harness.cacheData.get(harness.hooks.state().cacheName);
-  assert.equal(await privateCache.get(mediaUrl).text(), 'home photo');
+  assert.equal(await privateCache.get(homeMediaUrl).text(), 'home photo');
+  assert.equal(await privateCache.get(timelineMediaUrl).text(), 'timeline photo');
   assert.equal(
     [...privateCache.keys()].some((url) => url.startsWith('https://evil.example/')),
     false,

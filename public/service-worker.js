@@ -1,4 +1,4 @@
-importScripts('/js/pwaPolicy.js?v=completed-bucket-1');
+importScripts('/js/pwaPolicy.js?v=completed-bucket-2');
 
 const PUBLIC_CACHE_VERSION = 'v4';
 const CACHE_VERSION = 'v3';

@@ -14,8 +14,8 @@ const {
 
 test('PWA policy separates public shell, read-only snapshots, and protected media', () => {
   assert.ok(PUBLIC_SHELL_PATHS.includes('/offline.html'));
-  assert.ok(PUBLIC_SHELL_PATHS.includes('/css/style.css?v=completed-bucket-1'));
-  assert.ok(PUBLIC_SHELL_PATHS.includes('/icons/icon-512.png?v=gk-consolidation-1'));
+  assert.ok(PUBLIC_SHELL_PATHS.includes('/css/style.css?v=completed-bucket-2'));
+  assert.ok(PUBLIC_SHELL_PATHS.includes('/icons/icon-512.png?v=completed-bucket-2'));
   assert.ok(PUBLIC_SHELL_PATHS.includes('/js/theme.js'));
   assert.equal(PUBLIC_SHELL_PATHS.some((item) => item.startsWith('/settings')), false);
   assert.equal(isPrivateSnapshotPath('/'), true);
@@ -25,6 +25,9 @@ test('PWA policy separates public shell, read-only snapshots, and protected medi
   assert.equal(isPrivateSnapshotPath('/reminders/feed.json'), false);
   assert.equal(isPrivateMediaPath('/albums/photos/8/content'), true);
   assert.equal(isPrivateMediaPath('/media/home-photo'), true);
+  assert.equal(isPrivateMediaPath('/timeline/photos/8/content'), true);
+  assert.equal(isPrivateMediaPath('/timeline/photos/0/content'), false);
+  assert.equal(isPrivateMediaPath('/timeline/photos/8/delete'), false);
   assert.equal(isPrivateMediaPath('/images/private.jpg'), false);
   assert.equal(SNAPSHOT_OPT_IN, 'read-only-v1');
   assert.equal(MEDIA_OPT_IN, 'media-v1');

@@ -88,6 +88,14 @@ test('viewer, Kim member, and Gierael administrator boundaries are enforced', as
   assert.doesNotMatch(lockedHtml, />Online</);
   const csrfCookie = firstCookie(locked);
   const csrfToken = csrfFrom(lockedHtml);
+  const lockedTimelinePhoto = await fetch(`${base}/timeline/photos/1/content`, {
+    redirect: 'manual',
+  });
+  assert.equal(lockedTimelinePhoto.status, 401);
+  assert.equal(
+    lockedTimelinePhoto.headers.get('x-gbagl-authorization-lost'),
+    '1',
+  );
 
   const unlocked = await fetch(`${base}/unlock`, {
     method: 'POST',
@@ -105,6 +113,10 @@ test('viewer, Kim member, and Gierael administrator boundaries are enforced', as
   assert.equal(unlocked.status, 303);
   const siteCookie = firstCookie(unlocked);
   const siteCookies = `${csrfCookie}; ${siteCookie}`;
+  const viewerTimelinePhoto = await fetch(`${base}/timeline/photos/1/content`, {
+    headers: { Cookie: siteCookies },
+  });
+  assert.equal(viewerTimelinePhoto.status, 503);
 
   const viewerAdventure = await fetch(`${base}/adventure`, {
     headers: { Cookie: siteCookies },
@@ -122,6 +134,20 @@ test('viewer, Kim member, and Gierael administrator boundaries are enforced', as
     body: new URLSearchParams({ _csrf: csrfToken }),
   });
   assert.equal(viewerWrite.status, 403);
+  const viewerTimelineForm = new FormData();
+  viewerTimelineForm.append('_csrf', csrfToken);
+  viewerTimelineForm.append(
+    'photo',
+    new Blob([Buffer.from([0xff, 0xd8, 0xff, 0xd9])]),
+    'viewer.jpg',
+  );
+  const viewerTimelineWrite = await fetch(`${base}/timeline`, {
+    method: 'POST',
+    redirect: 'manual',
+    headers: { Cookie: siteCookies },
+    body: viewerTimelineForm,
+  });
+  assert.equal(viewerTimelineWrite.status, 403);
 
   const retiredContentPage = await fetch(`${base}/settings/content/bucket`, {
     redirect: 'manual',
@@ -204,6 +230,34 @@ test('viewer, Kim member, and Gierael administrator boundaries are enforced', as
     }),
   });
   assert.notEqual(memberWrite.status, 403);
+  const missingCsrfTimelineForm = new FormData();
+  missingCsrfTimelineForm.append(
+    'photo',
+    new Blob([Buffer.from([0xff, 0xd8, 0xff, 0xd9])]),
+    'missing-csrf.jpg',
+  );
+  const missingCsrfTimelineWrite = await fetch(`${base}/timeline`, {
+    method: 'POST',
+    redirect: 'manual',
+    headers: { Cookie: kimCookies },
+    body: missingCsrfTimelineForm,
+  });
+  assert.equal(missingCsrfTimelineWrite.status, 403);
+  const memberTimelineForm = new FormData();
+  memberTimelineForm.append('_csrf', csrfToken);
+  memberTimelineForm.append(
+    'photo',
+    new Blob([Buffer.from([0xff, 0xd8, 0xff, 0xd9])]),
+    'member.jpg',
+  );
+  const memberTimelineWrite = await fetch(`${base}/timeline`, {
+    method: 'POST',
+    redirect: 'manual',
+    headers: { Cookie: kimCookies },
+    body: memberTimelineForm,
+  });
+  assert.equal(memberTimelineWrite.status, 303);
+  assert.match(memberTimelineWrite.headers.get('location'), /Database\+unavailable/);
   const memberExport = await fetch(`${base}/settings/exports`, {
     redirect: 'manual',
     headers: { Cookie: kimCookies },
